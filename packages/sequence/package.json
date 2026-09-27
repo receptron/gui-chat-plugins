@@ -1,0 +1,58 @@
+{
+  "name": "@gui-chat-plugin/sequence",
+  "version": "0.1.0",
+  "description": "Slideshows, step-by-step guides and stories told in pictures (presentSlide, defineStoryboard, presentPanel) for GUI Chat Protocol hosts",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.cjs"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/test_*.ts"
+  },
+  "peerDependencies": {
+    "@mulmochat-plugin/ui-image": "^0.4.1",
+    "gui-chat-protocol": "^2.1.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@mulmochat-plugin/ui-image": "^0.4.1",
+    "gui-chat-protocol": "^2.1.0",
+    "vue": "^3.5.43"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/sequence#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/receptron/gui-chat-plugins.git",
+    "directory": "packages/sequence"
+  },
+  "keywords": [
+    "gui-chat",
+    "gui-chat-protocol",
+    "plugin",
+    "slideshow",
+    "storyboard"
+  ]
+}
