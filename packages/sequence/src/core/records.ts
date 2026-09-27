@@ -19,16 +19,22 @@ export const STORYBOARDS_DIR = "storyboards";
 
 type SequenceRecord = Slideshow | Storyboard;
 
-const caches = new WeakMap<FileOps, Map<string, SequenceRecord>>();
-const locks = new WeakMap<FileOps, Map<string, SerialLock>>();
+// Keyed by the host's FileOps, or by NO_FILES for a host that gives the
+// tools no files: its records are kept in memory only, so a story still goes
+// on (the results say they weren't saved).
+const NO_FILES = {};
+type Store = FileOps | typeof NO_FILES;
 
-function cacheOf(files: FileOps): Map<string, SequenceRecord> {
+const caches = new WeakMap<Store, Map<string, SequenceRecord>>();
+const locks = new WeakMap<Store, Map<string, SerialLock>>();
+
+function cacheOf(files: Store): Map<string, SequenceRecord> {
   let cache = caches.get(files);
   if (!cache) caches.set(files, (cache = new Map()));
   return cache;
 }
 
-function lockOf(files: FileOps, file: string): SerialLock {
+function lockOf(files: Store, file: string): SerialLock {
   let byFile = locks.get(files);
   if (!byFile) locks.set(files, (byFile = new Map()));
   let lock = byFile.get(file);
@@ -39,13 +45,14 @@ function lockOf(files: FileOps, file: string): SerialLock {
 const recordFile = (dir: string, id: string) => `${dir}/${id}.json`;
 
 async function readRecord<T extends SequenceRecord>(
-  files: FileOps,
+  files: FileOps | undefined,
   file: string,
 ): Promise<T | null> {
-  const cache = cacheOf(files);
+  const cache = cacheOf(files ?? NO_FILES);
   const cached = cache.get(file);
   // The caller asked for the directory the record was saved in.
   if (cached) return cached as T;
+  if (!files) return null;
   try {
     const saved = JSON.parse(await files.read(file)) as T;
     cache.set(file, saved);
@@ -62,14 +69,15 @@ export async function loadRecord<T extends SequenceRecord>(
   dir: string,
   id: string,
 ): Promise<T | null> {
-  if (!files || !SEQUENCE_ID.test(id)) return null;
+  if (!SEQUENCE_ID.test(id)) return null;
   return readRecord<T>(files, recordFile(dir, id));
 }
 
 /**
  * Change a record (null when there is none yet) and save it. Resolves to
- * whether it was saved: one that wasn't still works while the host runs, and
- * the result says so, as for a picture that wasn't saved.
+ * whether it was saved: one that wasn't (no files, or the write failed)
+ * still works while the host runs, and the result says so, as for a picture
+ * that wasn't saved.
  */
 export async function updateRecord<T extends SequenceRecord>(
   files: FileOps | undefined,
@@ -77,14 +85,15 @@ export async function updateRecord<T extends SequenceRecord>(
   id: string,
   change: (record: T | null) => T,
 ): Promise<boolean> {
-  if (!files) return false;
   const file = recordFile(dir, id);
+  const store = files ?? NO_FILES;
   return lockOf(
-    files,
+    store,
     file,
   )(async () => {
     const record = change(await readRecord<T>(files, file));
-    cacheOf(files).set(file, record);
+    cacheOf(store).set(file, record);
+    if (!files) return false;
     try {
       await files.write(file, JSON.stringify(record, null, 2));
       return true;

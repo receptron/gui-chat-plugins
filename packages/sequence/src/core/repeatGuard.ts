@@ -6,31 +6,41 @@
 // made waits for it: it may yet fail.
 const DUPLICATE_WINDOW_MS = 60_000;
 
+/**
+ * A request claimed: either this call makes it (`settle` says whether it was
+ * shown), or an identical one made in the last minute does (`earlier`
+ * resolves to whether that one was shown).
+ */
+export type Claim =
+  { settle: (shown: boolean) => void } | { earlier: Promise<boolean> };
+
 /** Drops a repeat of a request made in the last minute. */
 export function createRepeatGuard() {
   const recent = new Map<string, { at: number; shown: Promise<boolean> }>();
 
-  /** Whether an identical recent request showed its picture. */
-  const alreadyShown = async (key: string): Promise<boolean> => {
+  /**
+   * Claim a request, synchronously: checking and reserving it happen in one
+   * step, so two identical calls that arrive together can't both make it
+   * (checking, awaiting, then reserving let both through). A failed request
+   * gives up its claim, so a later call may try again.
+   */
+  const claim = (key: string): Claim => {
     const now = Date.now();
     for (const [k, entry] of recent) {
       if (now - entry.at > DUPLICATE_WINDOW_MS) recent.delete(k);
     }
     const earlier = recent.get(key);
-    return !!earlier && (await earlier.shown);
-  };
-
-  /** Start a request; call the result with whether it was shown. A failed
-   *  one may be tried again. */
-  const begin = (key: string): ((shown: boolean) => void) => {
-    let settle: (shown: boolean) => void = () => undefined;
-    const shown = new Promise<boolean>((resolve) => (settle = resolve));
-    recent.set(key, { at: Date.now(), shown });
-    return (wasShown) => {
-      if (!wasShown && recent.get(key)?.shown === shown) recent.delete(key);
-      settle(wasShown);
+    if (earlier) return { earlier: earlier.shown };
+    let settleShown: (shown: boolean) => void = () => undefined;
+    const shown = new Promise<boolean>((resolve) => (settleShown = resolve));
+    recent.set(key, { at: now, shown });
+    return {
+      settle: (wasShown) => {
+        if (!wasShown && recent.get(key)?.shown === shown) recent.delete(key);
+        settleShown(wasShown);
+      },
     };
   };
 
-  return { alreadyShown, begin };
+  return { claim };
 }

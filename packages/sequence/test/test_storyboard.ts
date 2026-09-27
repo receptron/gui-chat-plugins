@@ -191,3 +191,42 @@ test("a record ID that isn't one is refused", async () => {
   files.files.set("storyboards/../secret.json", "{}");
   assert.equal(await loadRecord(files, STORYBOARDS_DIR, "../secret"), null);
 });
+
+test("two identical panels asked for together are drawn once", async () => {
+  const host = fakeHost();
+  const storyboardId = String(
+    data(await defineStoryboard(host.context(), cast)).storyboardId,
+  );
+  const drawnBefore = host.calls.length;
+  const args = {
+    storyboardId,
+    panel: 1,
+    characters: ["Mia"],
+    imagePrompt: "z",
+  };
+  const [first, second] = await Promise.all([
+    presentPanel(host.context(), args),
+    presentPanel(host.context(), args),
+  ]);
+  assert.equal(host.calls.length - drawnBefore, 1);
+  assert.equal(data(first).panel, 1);
+  assert.equal(second.cancelled, true);
+});
+
+test("without files, a story still goes on, and says it isn't saved", async () => {
+  const host = fakeHost();
+  const noFiles = () => {
+    const { files: _files, ...withoutFiles } = host.context();
+    return withoutFiles;
+  };
+  const castResult = await defineStoryboard(noFiles(), cast);
+  assert.match(castResult.message, /could not be saved/);
+  const panel = await presentPanel(noFiles(), {
+    storyboardId: String(data(castResult).storyboardId),
+    panel: 1,
+    characters: ["Mia"],
+    imagePrompt: "w",
+  });
+  assert.equal(data(panel).panel, 1);
+  assert.match(panel.message, /could not be saved/);
+});

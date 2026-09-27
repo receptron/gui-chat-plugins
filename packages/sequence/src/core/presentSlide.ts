@@ -280,8 +280,15 @@ export async function presentSlide(
     // Going back (or forward again): the step as it was, at once.
     return showAgain(show, slide, earlier);
   }
-  const key = slideKey(show.id, slide);
-  if (await repeats.alreadyShown(key)) {
+  // Claimed before anything is awaited, and marked pending at once: a call
+  // that arrives meanwhile sees this one (a repeat waits for it, a later
+  // guide step is held).
+  const claim = repeats.claim(slideKey(show.id, slide));
+  if ("earlier" in claim) {
+    if (!(await claim.earlier)) {
+      // The identical call failed: this one tries, from the start.
+      return presentSlide(context, args);
+    }
     // A guide's step has replaced it since: shown again, as it was.
     const shownBefore = show.slides.get(slide.slide);
     if (shownBefore && lastShown !== show) {
@@ -293,7 +300,7 @@ export async function presentSlide(
       cancelled: true,
     };
   }
-  const settle = repeats.begin(key);
+  const { settle } = claim;
   // Pending while it is drawn: a later step asked for meanwhile is held.
   const before = { current: show.current, shownAt: show.shownAt };
   show.current = slide.slide;

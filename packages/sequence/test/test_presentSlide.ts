@@ -212,3 +212,43 @@ test("a host that doesn't say when the user spoke holds nothing", async () => {
   );
   assert.equal(data(step2).slide, 2);
 });
+
+test("two identical slides asked for together are drawn once", async () => {
+  const host = fakeHost();
+  const args = slideArgs(1, 11, title("Together"));
+  const [first, second] = await Promise.all([
+    presentSlide(host.context(), args),
+    presentSlide(host.context(), args),
+  ]);
+  assert.equal(host.calls.length, 1);
+  assert.equal(data(first).slide, 1);
+  assert.equal(second.cancelled, true);
+});
+
+test("a guide step asked for while the one before is drawn is held", async () => {
+  const host = fakeHost();
+  const name = title("Overlap");
+  const steps = (slide: number) =>
+    slideArgs(slide, 12, name, { mode: "steps" });
+  const [step1, step2] = await Promise.all([
+    presentSlide(host.context({ userSpokeAt: 0 }), steps(1)),
+    presentSlide(host.context({ userSpokeAt: 0 }), steps(2)),
+  ]);
+  assert.equal(data(step1).slide, 1);
+  assert.equal(step2.cancelled, true);
+  assert.match(step2.message, /step 1 is still being drawn/);
+  assert.equal(host.calls.length, 1);
+});
+
+test("when the first of two identical calls fails, the second tries", async () => {
+  let failures = 1;
+  const host = fakeHost({ fail: () => failures-- > 0 });
+  const args = slideArgs(1, 13, title("Retry"));
+  const [first, second] = await Promise.all([
+    presentSlide(host.context(), args),
+    presentSlide(host.context(), args),
+  ]);
+  assert.equal(first.sequence, null);
+  assert.equal(data(second).slide, 1);
+  assert.equal(host.calls.length, 2);
+});

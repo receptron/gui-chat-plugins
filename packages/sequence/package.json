@@ -27,7 +27,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && vite build && tsc -p tsconfig.build.json",
+    "build": "vite build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/test_*.ts"
   },

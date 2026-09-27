@@ -291,25 +291,11 @@ export async function presentPanel(
 ): Promise<ToolResult> {
   const parsed = parsePanelArgs(args);
   if (!parsed) return { message: PANEL_ARGS_ERROR, sequence: null };
-  const storyboard = await loadRecord<Storyboard>(
-    context.files?.artifacts,
-    STORYBOARDS_DIR,
-    parsed.storyboardId,
-  );
-  if (!storyboard) {
-    return {
-      message: `there is no storyboard "${parsed.storyboardId}"; call defineStoryboard first`,
-      sequence: null,
-    };
-  }
-  if (parsed.panel > storyboard.totalPanels) {
-    return {
-      message: `storyboard "${storyboard.id}" has ${storyboard.totalPanels} panels`,
-      sequence: null,
-    };
-  }
   const { storyboardId, panel } = parsed;
 
+  // Everything up to marking this panel pending happens before anything is
+  // awaited: a call that arrives meanwhile sees it (a repeat waits for it, a
+  // later panel is held while it is drawn).
   const waiting = awaitingChoice.get(storyboardId);
   if (
     waiting &&
@@ -327,15 +313,17 @@ export async function presentPanel(
     };
   }
 
-  const key = JSON.stringify(parsed);
-  if (await repeats.alreadyShown(key)) {
+  const claim = repeats.claim(JSON.stringify(parsed));
+  if ("earlier" in claim) {
+    // The identical call failed: this one tries, from the start.
+    if (!(await claim.earlier)) return presentPanel(context, args);
     // Not shown again, and no instructions: the model goes on by itself.
     return {
-      message: `panel ${panel} of ${storyboard.totalPanels} is already on the screen`,
+      message: `panel ${panel} is already on the screen`,
       cancelled: true,
     };
   }
-  const settle = repeats.begin(key);
+  const { settle } = claim;
   const pending = { panel, shownAt: Infinity };
   const before = awaitingChoice.get(storyboardId);
   awaitingChoice.set(storyboardId, pending);
@@ -344,6 +332,23 @@ export async function presentPanel(
 
   let shown = false;
   try {
+    const storyboard = await loadRecord<Storyboard>(
+      context.files?.artifacts,
+      STORYBOARDS_DIR,
+      storyboardId,
+    );
+    if (!storyboard) {
+      return {
+        message: `there is no storyboard "${storyboardId}"; call defineStoryboard first`,
+        sequence: null,
+      };
+    }
+    if (panel > storyboard.totalPanels) {
+      return {
+        message: `storyboard "${storyboard.id}" has ${storyboard.totalPanels} panels`,
+        sequence: null,
+      };
+    }
     const image = await drawPanel(context, storyboard, parsed);
     shown = !!imageOf(image).imageData;
     const data = image.data as PanelData | undefined;

@@ -25,13 +25,13 @@ The core entry (`@gui-chat-plugin/sequence`) has the same tools without Views, f
 
 ### What `execute()` needs from its context
 
-|                                      | Used for                                                                                       | Without it                            |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `app.generateImage(prompt)`          | every picture                                                                                  | "image generation isn't available"    |
-| `app.editImages(prompt, imagePaths)` | a panel drawn from its characters' sheets, a guide step drawn from the step before             | drawn from the prompt alone           |
-| `files.artifacts` (`FileOps`)        | the records, and checking that a reference picture is still there                              | nothing is saved; no references       |
-| `userSpokeAt`                        | holding a guide's next step, or a story's next panel after a choice, until the user has spoken | nothing is held                       |
-| `currentResult`                      | telling "show step 2 again" (it isn't on the screen) from a repeated call (it is)              | a step asked for again is shown again |
+|                                      | Used for                                                                                       | Without it                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `app.generateImage(prompt)`          | every picture                                                                                  | "image generation isn't available"                                                  |
+| `app.editImages(prompt, imagePaths)` | a panel drawn from its characters' sheets, a guide step drawn from the step before             | drawn from the prompt alone                                                         |
+| `files.artifacts` (`FileOps`)        | the records, and checking that a reference picture is still there                              | records are kept in memory only (the results say they weren't saved); no references |
+| `userSpokeAt`                        | holding a guide's next step, or a story's next panel after a choice, until the user has spoken | nothing is held                                                                     |
+| `currentResult`                      | telling "show step 2 again" (it isn't on the screen) from a repeated call (it is)              | a step asked for again is shown again                                               |
 
 `generateImage` and `editImages` are gui-chat-protocol's `context.app` conventions: they save each
 picture as `artifacts/images/…` and return its path in `data.imagePath`. `currentResult` is compared
@@ -53,7 +53,9 @@ model to explain the step.
 
 The holds, the repeat guard and each slideshow's shown steps are kept in memory where `execute()`
 runs, as one conversation's. A host that runs `execute()` for several users in one process would
-mix them.
+mix them. Calls may overlap (a host that runs `execute()` on a server gets them as concurrent
+requests): a call is claimed before anything is awaited, so an identical one waits for it and a
+later step is held while it is drawn.
 
 ## Records
 
