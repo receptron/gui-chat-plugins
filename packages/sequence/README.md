@@ -3,11 +3,11 @@
 Tools that show things one step at a time, as pictures, for
 [GUI Chat Protocol](https://github.com/receptron/gui-chat-protocol) hosts:
 
-| Tool               | Shows                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `presentSlide`     | One slide of a spoken slideshow (mode `"presentation"`), or one step of a step-by-step guide the user follows along with (mode `"steps"`) |
-| `defineStoryboard` | A story's cast: a reference sheet for each recurring character                                                                            |
-| `presentPanel`     | One panel of the story, with its characters drawn as in their sheets; an interactive story offers choices                                 |
+| Tool               | Shows                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presentSlide`     | One slide of a spoken slideshow (mode `"presentation"`), or one step of a step-by-step guide the user follows along with (mode `"steps"`): a generated picture, or a slide in HTML |
+| `defineStoryboard` | A story's cast: a reference sheet for each recurring character                                                                                                                     |
+| `presentPanel`     | One panel of the story, with its characters drawn as in their sheets; an interactive story offers choices                                                                          |
 
 From MulmoChat and MulmoGlass, tested there by voice on OpenAI Realtime, Gemini Live and Grok, and
 in text chat.
@@ -60,11 +60,31 @@ overlap (a host that runs `execute()` on a server gets them as concurrent reques
 claimed before anything is awaited, so an identical one waits for it and a later step is held while
 it is drawn.
 
+## HTML slides
+
+A slide is a generated picture (`imagePrompt`) or HTML (`html`), the model's choice per slide: a
+picture for a scene or an object, HTML for words, numbers, lists, comparisons and diagrams, which
+picture models draw badly. The model writes the inside of `<body>` for a 1280x720 canvas, with
+Tailwind CSS v4 classes and these entrance animations: `animate-fade-in`, `animate-fade-up`,
+`animate-fade-down`, `animate-slide-in-left`, `animate-slide-in-right`, `animate-zoom-in`,
+`animate-pop` and `animate-draw` (an SVG path drawing itself), staggered with
+`[animation-delay:…]`.
+
+`slideHtmlDocument(html)` (core entry) makes the page: Tailwind's browser build from jsDelivr, the
+animations, and a Content Security Policy that lets it send nothing out (`connect-src 'none'`;
+images, media and fonts only from `data:`/`blob:` URLs and Google Fonts). The View shows it in an
+iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page can't reach the host's
+pages, storage or cookies, scaled to fit. Tailwind is loaded from the network: offline, the slide
+appears unstyled.
+
+A host that sends `currentResult` by its saved picture's path only (as MulmoChat does) can't tell
+that an HTML step is on the screen; a guide step asked for again is then shown again.
+
 ## Records
 
 Saved through `files.artifacts`, with their pictures' paths:
 
-- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath } } }`
+- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath } } }`; an HTML slide has `html`, an `imagePrompt` of `""` and no `imagePath`
 - `storyboards/<id>.json`: `{ id, title, style, totalPanels, interactive, characters: [{ name, description, imagePath }], panels: { "1": { caption, characters, imagePrompt, imagePath, choices } } }`
 
 IDs are 12 hex digits. The results name them, so a later tool call can refer to a slideshow or a

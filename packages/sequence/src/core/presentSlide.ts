@@ -1,5 +1,5 @@
-// presentSlide: one slide of a spoken slideshow, a generated picture per
-// slide. The model calls it once per slide, in order, and explains each slide
+// presentSlide: one slide of a spoken slideshow, a generated picture or a
+// slide written in HTML (./slideHtml.ts). The model calls it once per slide, in order, and explains each slide
 // when it appears. With the slide number and the total as arguments, the
 // result says where the slideshow is (ToolResult.sequence), and the host can
 // ask the model to go on (gui-chat-protocol's createSequenceKeeper).
@@ -16,7 +16,6 @@
 // below lives there.
 import type { SequenceStep, ToolResult } from "gui-chat-protocol";
 import {
-  SLIDE_ARGS_ERROR,
   parseSlideArgs,
   slideShownInstructions,
   type SlideArgs,
@@ -30,6 +29,7 @@ import {
   newSequenceId,
   perConversation,
   samePicture,
+  shownContent,
   usableReferences,
   userSpokeSince,
   type SequenceContext,
@@ -68,8 +68,9 @@ export function slideSequenceStep({
 // drawn again, so that slideshow's record has it.
 const slideKey = (
   slideshowId: string,
-  { slide, totalSlides, title, imagePrompt }: SlideArgs,
-) => JSON.stringify([slideshowId, slide, totalSlides, title, imagePrompt]);
+  { slide, totalSlides, title, imagePrompt, html }: SlideArgs,
+) =>
+  JSON.stringify([slideshowId, slide, totalSlides, title, imagePrompt, html]);
 
 // A slideshow as shown. Slides carry no ID, so a slideshow is known by its
 // mode, its length and its first slide's title: slide 1 with another title,
@@ -175,12 +176,16 @@ function slidePrompt(slide: SlideArgs, hasReference: boolean): string {
     .join(" ");
 }
 
-/** Draw a slide and save it in its slideshow's record. */
-async function drawSlide(
+/** The slide's picture, drawn by the host; an HTML slide is shown as it is. */
+async function slideContent(
   context: SequenceContext,
   show: ShownSlideshow,
   slide: SlideArgs,
-): Promise<ToolResult> {
+): Promise<
+  | { imageData?: string; imagePath?: string; html?: string; prompt: string }
+  | { failed: ToolResult }
+> {
+  if (slide.html) return { html: slide.html, prompt: "" };
   const previous = show.slides.get(slide.slide - 1);
   const previousPath =
     slide.mode === "steps" ? imageOf(previous).imagePath : undefined;
@@ -191,7 +196,19 @@ async function drawSlide(
   const image = await drawPicture(context, prompt, references);
   const { imageData, imagePath } = imageOf(image);
   // A failure keeps the image host's message and instructions.
-  if (!imageData) return { ...image, sequence: null };
+  if (!imageData) return { failed: { ...image, sequence: null } };
+  return { imageData, ...(imagePath && { imagePath }), prompt };
+}
+
+/** Make a slide and save it in its slideshow's record. */
+async function makeSlide(
+  context: SequenceContext,
+  show: ShownSlideshow,
+  slide: SlideArgs,
+): Promise<ToolResult> {
+  const content = await slideContent(context, show, slide);
+  if ("failed" in content) return content.failed;
+  const { imageData, imagePath, html, prompt } = content;
 
   const slideshowId = show.id;
   const recorded = await updateRecord<Slideshow>(
@@ -211,14 +228,16 @@ async function drawSlide(
         title: slide.title,
         imagePrompt: slide.imagePrompt,
         ...(imagePath && { imagePath }),
+        ...(html && { html }),
       };
       return slideshow;
     },
   );
 
   const data: SlideData = {
-    imageData,
+    ...(imageData && { imageData }),
     ...(imagePath && { imagePath }),
+    ...(html && { html }),
     prompt,
     slideshowId,
     slide: slide.slide,
@@ -249,7 +268,7 @@ export async function presentSlide(
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
   const slide = parseSlideArgs(args);
-  if (!slide) return { message: SLIDE_ARGS_ERROR, sequence: null };
+  if (typeof slide === "string") return { message: slide, sequence: null };
   const state = stateOf(context);
   const show = slideshowFor(state, slide);
   const guide = slide.mode === "steps";
@@ -315,8 +334,8 @@ export async function presentSlide(
   show.shownAt = Infinity;
   let shown = false;
   try {
-    const image = await drawSlide(context, show, slide);
-    shown = !!imageOf(image).imageData;
+    const image = await makeSlide(context, show, slide);
+    shown = shownContent(image);
     if (shown) {
       show.slides.set(slide.slide, image);
       show.current = slide.slide;

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { presentSlide } from "../src/core/presentSlide";
+import { slideHtmlDocument } from "../src/core/slideHtml";
 import { fakeHost, record } from "./fakeHost";
 
 // The tools keep state per process, as a host keeps them running: each test
@@ -301,4 +302,142 @@ test("old conversations are dropped past the limit", async () => {
   );
   assert.equal(again.cancelled, undefined);
   assert.equal(drawsOf(), 2);
+});
+
+// --- HTML slides ---------------------------------------------------------------
+
+const htmlSlide = (slide: number, totalSlides: number, firstTitle: string) => ({
+  slide,
+  totalSlides,
+  title: slide === 1 ? firstTitle : `${firstTitle}: part ${slide}`,
+  html: `<div class="w-full h-full animate-fade-up">${firstTitle} ${slide}</div>`,
+});
+
+test("an HTML slide is shown and saved without drawing anything", async () => {
+  const host = fakeHost();
+  const name = title("Timeline");
+  const args = htmlSlide(1, 21, name);
+  const result = await presentSlide(host.context(), args);
+
+  assert.equal(host.calls.length, 0);
+  const { slideshowId, html, imageData, imagePath } = data(result);
+  assert.equal(html, args.html);
+  assert.equal(imageData, undefined);
+  assert.equal(imagePath, undefined);
+  assert.match(
+    result.message,
+    /slide 1 of 21 of slideshow "[0-9a-f]{12}" is on the screen/,
+  );
+  assert.equal(result.instructionsRequired, true);
+  assert.equal(result.sequence?.step, 1);
+  assert.deepEqual(record(host.artifacts, `slideshows/${slideshowId}.json`), {
+    id: slideshowId,
+    title: name,
+    mode: "presentation",
+    totalSlides: 21,
+    slides: { "1": { title: name, imagePrompt: "", html: args.html } },
+  });
+});
+
+test("a slideshow mixes pictures and HTML slides", async () => {
+  const host = fakeHost();
+  const name = title("Mixed");
+  const first = await presentSlide(host.context(), slideArgs(1, 22, name));
+  const second = await presentSlide(
+    host.context({ currentResult: first }),
+    htmlSlide(2, 22, name),
+  );
+  assert.equal(data(second).slideshowId, data(first).slideshowId);
+  assert.equal(host.calls.length, 1);
+  const saved = record(
+    host.artifacts,
+    `slideshows/${data(first).slideshowId}.json`,
+  );
+  assert.deepEqual(Object.keys(saved.slides as object), ["1", "2"]);
+});
+
+test("html wins over an imagePrompt sent with it", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    ...htmlSlide(1, 23, title("Both")),
+    imagePrompt: "a picture too",
+  });
+  assert.equal(host.calls.length, 0);
+  assert.equal(data(result).prompt, "");
+  assert.ok(data(result).html);
+});
+
+test("a slide with neither an imagePrompt nor html, or too much html, ends the sequence", async () => {
+  const host = fakeHost();
+  const neither = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 2,
+    title: title("Empty"),
+    html: "  ",
+  });
+  assert.match(neither.message, /either an imagePrompt or html/);
+  assert.equal(neither.sequence, null);
+
+  const long = await presentSlide(host.context(), {
+    ...htmlSlide(1, 2, title("Long")),
+    html: "x".repeat(60_001),
+  });
+  assert.match(long.message, /too long/);
+  assert.equal(long.sequence, null);
+  assert.equal(host.calls.length, 0);
+});
+
+test("an HTML guide step on the screen isn't shown again; off it, it comes back as it was", async () => {
+  const host = fakeHost();
+  const name = title("Stretch");
+  const step = (slide: number) => ({
+    ...htmlSlide(slide, 24, name),
+    mode: "steps",
+  });
+  const step1 = await presentSlide(host.context(), step(1));
+  const step2 = await presentSlide(
+    host.context({ currentResult: step1, userSpokeAt: Date.now() + 1 }),
+    step(2),
+  );
+  assert.equal(data(step2).html, step(2).html);
+
+  const onScreen = await presentSlide(
+    host.context({ currentResult: step1 }),
+    step(1),
+  );
+  assert.equal(onScreen.cancelled, true);
+
+  const back = await presentSlide(
+    host.context({ currentResult: step2 }),
+    step(1),
+  );
+  assert.match(back.message, /on the screen again, as it was/);
+  assert.equal(data(back).html, step(1).html);
+  assert.equal(host.calls.length, 0);
+});
+
+test("a picture step after an HTML step is drawn without a reference", async () => {
+  const host = fakeHost();
+  const name = title("Origami");
+  const step1 = await presentSlide(host.context(), {
+    ...htmlSlide(1, 25, name),
+    mode: "steps",
+  });
+  await presentSlide(
+    host.context({ currentResult: step1, userSpokeAt: Date.now() + 1 }),
+    slideArgs(2, 25, name, { mode: "steps" }),
+  );
+  assert.deepEqual(host.calls.at(-1)?.references, []);
+});
+
+test("an HTML slide's page loads Tailwind, the animations and a policy that stops it sending anything", () => {
+  const page = slideHtmlDocument('<div class="animate-pop">Hi</div>');
+  assert.match(page, /@tailwindcss\/browser@4/);
+  assert.match(page, /--animate-pop:/);
+  assert.match(page, /connect-src 'none'/);
+  assert.match(page, /img-src data: blob:/);
+  assert.match(
+    page,
+    /<body[^>]*>\n<div class="animate-pop">Hi<\/div>\n<\/body>/,
+  );
 });

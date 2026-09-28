@@ -1,10 +1,19 @@
 // The Vue entry: the three tools with their Views. The Views fit the whole
 // picture on the screen, as a slide or a panel should be seen (ui-image's
 // ImageView, which generateImage's View uses, fits a wide picture to the
-// width and scrolls), with a panel's caption and choices under it.
+// width and scrolls), with a panel's caption and choices under it. An HTML
+// slide is fitted the same way, as a sandboxed page.
 import "../style.css";
 
-import { defineComponent, h, markRaw, type PropType } from "vue";
+import {
+  defineComponent,
+  h,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  type PropType,
+} from "vue";
 import type { ToolPlugin, ToolResult } from "gui-chat-protocol/vue";
 import {
   ImagePreview,
@@ -15,7 +24,11 @@ import {
   defineStoryboardPluginCore,
   presentPanelPluginCore,
   presentSlidePluginCore,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  slideHtmlDocument,
   type CastData,
+  type SlideData,
 } from "../core/index";
 
 /** What a View shows under the picture. */
@@ -97,6 +110,138 @@ function fittedImageView(
   );
 }
 
+/** An HTML slide: its page at 1280x720, scaled to fit the View. The iframe
+ *  is sandbox="allow-scripts" without allow-same-origin: the page is
+ *  model-written, so it gets an opaque origin, and its own CSP
+ *  (slideHtmlDocument) stops it sending anything out. */
+const HtmlSlide = defineComponent({
+  name: "HtmlSlide",
+  props: { html: { type: String, required: true } },
+  setup(props) {
+    const box = ref<HTMLElement | null>(null);
+    const scale = ref(0);
+    let observer: ResizeObserver | undefined;
+    const fit = () => {
+      const el = box.value;
+      if (!el) return;
+      scale.value = Math.min(
+        el.clientWidth / SLIDE_WIDTH,
+        el.clientHeight / SLIDE_HEIGHT,
+      );
+    };
+    onMounted(() => {
+      fit();
+      observer = new ResizeObserver(fit);
+      if (box.value) observer.observe(box.value);
+    });
+    onBeforeUnmount(() => observer?.disconnect());
+    return () =>
+      h(
+        "div",
+        {
+          ref: box,
+          class: "flex-1 min-h-0 w-full relative overflow-hidden",
+        },
+        // Not before it is sized: the slide's animations start when it loads.
+        scale.value > 0
+          ? [
+              h("iframe", {
+                srcdoc: slideHtmlDocument(props.html),
+                sandbox: "allow-scripts",
+                title: "slide",
+                width: SLIDE_WIDTH,
+                height: SLIDE_HEIGHT,
+                class: "absolute border-0 bg-white shadow",
+                style: {
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(-50%, -50%) scale(${scale.value})`,
+                },
+              }),
+            ]
+          : [],
+      );
+  },
+});
+
+const ImageSlideView = fittedImageView("PresentSlideImageView");
+
+const PresentSlideView = markRaw(
+  defineComponent({
+    name: "PresentSlideView",
+    props: {
+      selectedResult: {
+        type: Object as PropType<ToolResult<SlideData>>,
+        required: true,
+      },
+    },
+    setup(props) {
+      return () => {
+        const html = props.selectedResult.data?.html;
+        if (!html) {
+          return h(ImageSlideView, {
+            selectedResult:
+              props.selectedResult as unknown as ImageResult<ImageToolData>,
+          });
+        }
+        // Keyed by the result, so another slide is a new page and its
+        // animations play again.
+        return h(
+          "div",
+          { class: "h-full w-full flex flex-col bg-slate-100 p-2" },
+          [
+            h(HtmlSlide, {
+              key: props.selectedResult.uuid ?? html,
+              html,
+            }),
+          ],
+        );
+      };
+    },
+  }),
+);
+
+const PresentSlidePreview = markRaw(
+  defineComponent({
+    name: "PresentSlidePreview",
+    props: {
+      result: {
+        type: Object as PropType<ToolResult<SlideData>>,
+        required: true,
+      },
+    },
+    setup(props) {
+      return () => {
+        const data = props.result.data;
+        if (!data?.html) {
+          return h(ImagePreview, {
+            result: props.result as unknown as ImageResult<ImageToolData>,
+          });
+        }
+        return h(
+          "div",
+          {
+            class:
+              "aspect-video w-full rounded bg-gradient-to-br from-indigo-600 to-sky-500 text-white flex flex-col items-center justify-center p-2 text-center",
+          },
+          [
+            h(
+              "div",
+              { class: "text-xs opacity-80" },
+              `Slide ${data.slide} of ${data.totalSlides}`,
+            ),
+            h(
+              "div",
+              { class: "text-sm font-semibold leading-tight line-clamp-2" },
+              data.title || props.result.title || "",
+            ),
+          ],
+        );
+      };
+    },
+  }),
+);
+
 /** ui-image's thumbnail of the result's picture. */
 function imagePreview(name: string) {
   return markRaw(
@@ -171,8 +316,8 @@ type SequencePlugin = ToolPlugin<unknown, unknown, Record<string, unknown>>;
 
 export const presentSlidePlugin: SequencePlugin = {
   ...presentSlidePluginCore,
-  viewComponent: fittedImageView("PresentSlideView"),
-  previewComponent: imagePreview("PresentSlidePreview"),
+  viewComponent: PresentSlideView,
+  previewComponent: PresentSlidePreview,
 };
 
 export const defineStoryboardPlugin: SequencePlugin = {

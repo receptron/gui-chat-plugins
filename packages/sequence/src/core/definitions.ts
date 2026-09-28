@@ -3,6 +3,12 @@
 // of the records saved in artifacts/slideshows/ and artifacts/storyboards/.
 // From MulmoChat (server/plugins/sequenceTools.ts) and MulmoGlass.
 import type { ToolDefinition } from "gui-chat-protocol";
+import {
+  MAX_SLIDE_HTML,
+  SLIDE_ANIMATIONS,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+} from "./slideHtml";
 
 export const PRESENT_SLIDE = "presentSlide";
 export const DEFINE_STORYBOARD = "defineStoryboard";
@@ -35,33 +41,41 @@ export interface SlideArgs {
   slide: number;
   totalSlides: number;
   title: string;
+  /** The picture's prompt; "" for an HTML slide. */
   imagePrompt: string;
+  /** An HTML slide's body; absent for a picture. */
+  html?: string;
   mode: SlideMode;
 }
 
 export const SLIDE_ARGS_ERROR =
-  "presentSlide needs slide and totalSlides (whole numbers, slide from 1 to totalSlides) and an imagePrompt";
+  "presentSlide needs slide and totalSlides (whole numbers, slide from 1 to totalSlides), and either an imagePrompt or html";
 
-/** The slide arguments, or null when the model sent something else. */
+export const SLIDE_HTML_TOO_LONG = `presentSlide's html is too long: keep a slide under ${MAX_SLIDE_HTML} characters`;
+
+/** The slide arguments, or what is wrong with them (said to the model). A
+ *  slide with html is an HTML slide, whatever imagePrompt says. */
 export function parseSlideArgs(
   args: Record<string, unknown>,
-): SlideArgs | null {
+): SlideArgs | string {
   const { slide, totalSlides, title, imagePrompt } = args;
+  const html = text(args.html);
   if (
     !isWholeNumber(slide) ||
     !isWholeNumber(totalSlides) ||
     slide < 1 ||
     totalSlides < slide ||
-    typeof imagePrompt !== "string" ||
-    !imagePrompt.trim()
+    (!html && !text(imagePrompt))
   ) {
-    return null;
+    return SLIDE_ARGS_ERROR;
   }
+  if (html.length > MAX_SLIDE_HTML) return SLIDE_HTML_TOO_LONG;
   return {
     slide,
     totalSlides,
     title: typeof title === "string" ? title : "",
-    imagePrompt,
+    imagePrompt: html ? "" : String(imagePrompt),
+    ...(html && { html }),
     mode: args.mode === "steps" ? "steps" : "presentation",
   };
 }
@@ -98,14 +112,23 @@ export interface Slideshow {
   totalSlides: number;
   slides: Record<
     string,
-    { title: string; imagePrompt: string; imagePath?: string }
+    {
+      title: string;
+      /** "" for an HTML slide. */
+      imagePrompt: string;
+      imagePath?: string;
+      /** An HTML slide's body (slideHtmlDocument makes it a page). */
+      html?: string;
+    }
   >;
 }
 
-/** A shown slide's result data. */
+/** A shown slide's result data: a picture, or an HTML slide's body. */
 export interface SlideData {
-  imageData: string;
+  imageData?: string;
   imagePath?: string;
+  html?: string;
+  /** The picture's prompt; "" for an HTML slide. */
   prompt: string;
   slideshowId: string;
   slide: number;
@@ -114,15 +137,20 @@ export interface SlideData {
   mode: SlideMode;
 }
 
+const SLIDE_HTML_DESCRIPTION = [
+  `For an HTML slide, instead of imagePrompt: the slide's content, the inside of <body> only (no <html>, <head> or <body> tags), for a ${SLIDE_WIDTH}x${SLIDE_HEIGHT} px canvas, which it should fill (start with a <div class="w-full h-full ...">). Style it with Tailwind CSS v4 classes, which are loaded for you: a clear layout, a large title (text-6xl or so), few words in large type, a color scheme, and inline SVG or emoji for icons and diagrams. There is no network: no <img> from URLs, no fetch.`,
+  `Animate it so it builds up as you explain it: these classes are defined, ${SLIDE_ANIMATIONS.map((name) => `animate-${name}`).join(", ")} (an SVG path drawing itself: set stroke-dasharray and --draw-length to its length), plus Tailwind's animate-pulse, animate-bounce, animate-spin and animate-ping, and transitions. Stagger the parts with a delay, [animation-delay:600ms], so they appear one after another over a few seconds. A <style> with your own @keyframes and a small inline <script> are allowed too.`,
+].join(" ");
+
 export const PRESENT_SLIDE_PROMPT: string =
-  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Go on to the last slide without asking whether to continue. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
+  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt) or a designed slide in HTML (html): use a picture for a scene, an object or a place, and HTML for words, numbers, lists, comparisons, timelines and diagrams, which a picture model draws badly; a slideshow can mix them. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
 
 export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
   type: "function",
   name: PRESENT_SLIDE,
   prompt: PRESENT_SLIDE_PROMPT,
   description:
-    'Show one slide of a slideshow: a picture generated from imagePrompt, full screen. Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
+    'Show one slide of a slideshow, full screen: a picture generated from imagePrompt, or a slide written in HTML (html). Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
   parameters: {
     type: "object",
     properties: {
@@ -139,7 +167,11 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
       imagePrompt: {
         type: "string",
         description:
-          "The picture for this slide: a clear illustration or diagram of its point, with the title as its only large text. Be concrete. For a step, show the action: hands, tools and the object.",
+          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. For a step, show the action: hands, tools and the object. Leave it out for an HTML slide.",
+      },
+      html: {
+        type: "string",
+        description: SLIDE_HTML_DESCRIPTION,
       },
       mode: {
         type: "string",
@@ -148,7 +180,7 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
           '"presentation" (the default) goes on by itself; "steps" is a how-to the user does along with you, and waits for them after each step. Keep it the same for every slide.',
       },
     },
-    required: ["slide", "totalSlides", "title", "imagePrompt"],
+    required: ["slide", "totalSlides", "title"],
   },
 };
 
