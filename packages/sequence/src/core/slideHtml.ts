@@ -102,12 +102,20 @@ const SLIDE_CSP = [
   "base-uri 'none'",
 ].join("; ");
 
-/** The slide's HTML with the tags that act on the page from outside the
- *  body made plain text: <meta> (a refresh navigates the frame, a policy of
- *  its own), <base> and <link> (prefetches). No tag can be rebuilt by the
- *  replacement, which only adds "&lt;". */
+/** The slide's HTML, made safe to show:
+ *  - the tags that act on the page from outside the body are plain text:
+ *    <meta> (a refresh navigates the frame, a policy of its own), <base> and
+ *    <link> (prefetches). No tag can be rebuilt by the replacement, which only
+ *    adds "&lt;".
+ *  - no declarative shadow root (<template shadowrootmode>, the only way to
+ *    make one without a script): a click inside one reaches the page's link
+ *    guard retargeted to its host, so a link there would navigate. Every
+ *    "shadowroot" is renamed, which leaves no attribute that makes one.
+ *    Everything stays in the light DOM, where the guard sees it. */
 export const neutralizeSlideHtml = (html: string): string =>
-  html.replace(/<(?=(meta|base|link)\b)/gi, "&lt;");
+  html
+    .replace(/<(?=(meta|base|link)\b)/gi, "&lt;")
+    .replace(/shadowroot/gi, "data-no-shadow-root");
 
 const BASE_STYLE = `
 html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; overflow: hidden; }

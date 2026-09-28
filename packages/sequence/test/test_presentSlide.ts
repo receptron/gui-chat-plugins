@@ -475,3 +475,11 @@ test("a slide's meta, base and link tags are plain text", () => {
   assert.match(html, /&lt;META http-equiv/);
   assert.match(html, /<metadata-card>ok<\/metadata-card>/);
 });
+
+test("a slide can't make a declarative shadow root, where a link would escape the guard", () => {
+  const html = neutralizeSlideHtml(
+    '<div><template shadowrootmode="closed"><a href="https://x.example/">go</a></template></div><div><template SHADOWROOTMODE="open" shadowrootclonable></template></div>',
+  );
+  assert.doesNotMatch(html, /(^|[\s<"'])shadowroot/i);
+  assert.match(html, /<a href="https:\/\/x\.example\/">go<\/a>/);
+});
