@@ -252,3 +252,53 @@ test("when the first of two identical calls fails, the second tries", async () =
   assert.equal(data(second).slide, 1);
   assert.equal(host.calls.length, 2);
 });
+
+test("two conversations' slideshows don't mix", async () => {
+  const host = fakeHost();
+  const a = (extra = {}) => host.context({ conversationId: "tab-a", ...extra });
+  const b = (extra = {}) => host.context({ conversationId: "tab-b", ...extra });
+  // Tab A starts a presentation, then tab B starts another of the same
+  // length: A's next slide still belongs to A's slideshow.
+  const a1 = await presentSlide(a(), slideArgs(1, 14, title("Tab A")));
+  const b1 = await presentSlide(b(), slideArgs(1, 14, title("Tab B")));
+  const a2 = await presentSlide(
+    a({ currentResult: a1 }),
+    slideArgs(2, 14, "Tab A"),
+  );
+  assert.notEqual(data(a1).slideshowId, data(b1).slideshowId);
+  assert.equal(data(a2).slideshowId, data(a1).slideshowId);
+});
+
+test("the same slide in two conversations is drawn for each", async () => {
+  const host = fakeHost();
+  const args = slideArgs(1, 15, title("Shared"));
+  await presentSlide(host.context({ conversationId: "one" }), args);
+  const other = await presentSlide(
+    host.context({ conversationId: "two" }),
+    args,
+  );
+  assert.equal(other.cancelled, undefined);
+  assert.equal(host.calls.length, 2);
+});
+
+test("old conversations are dropped past the limit", async () => {
+  const host = fakeHost();
+  const name = title("Evicted");
+  const args = slideArgs(1, 16, name);
+  const drawsOf = () =>
+    host.calls.filter((c) => c.prompt.includes(`picture of ${name} 1`)).length;
+  await presentSlide(host.context({ conversationId: "first" }), args);
+  for (let i = 0; i < 50; i++) {
+    await presentSlide(
+      host.context({ conversationId: `other-${i}` }),
+      slideArgs(1, 17, title("Other")),
+    );
+  }
+  // "first" was dropped, so its slide is drawn again, for a new slideshow.
+  const again = await presentSlide(
+    host.context({ conversationId: "first" }),
+    args,
+  );
+  assert.equal(again.cancelled, undefined);
+  assert.equal(drawsOf(), 2);
+});

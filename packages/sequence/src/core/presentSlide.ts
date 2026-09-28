@@ -28,6 +28,7 @@ import {
   drawPicture,
   imageOf,
   newSequenceId,
+  perConversation,
   samePicture,
   usableReferences,
   userSpokeSince,
@@ -63,9 +64,6 @@ export function slideSequenceStep({
   };
 }
 
-// An identical slide asked for twice (Gemini Live) is shown once.
-const repeats = createRepeatGuard();
-
 // With the slideshow's ID: the same slide asked for in a new slideshow is
 // drawn again, so that slideshow's record has it.
 const slideKey = (
@@ -92,22 +90,30 @@ interface ShownSlideshow {
   shownAt: number;
 }
 
-// The latest slideshow of each mode: a presentation shown in the middle of a
-// guide (the user asked a question between steps) leaves the guide as it
-// was, so "go back to step 2" still shows that step as it was, and the next
-// step is still drawn from the one before it.
-const latest: Record<SlideMode, ShownSlideshow | null> = {
-  presentation: null,
-  steps: null,
-};
+/** What a conversation's slideshows keep between calls. */
+interface SlideState {
+  // The latest slideshow of each mode: a presentation shown in the middle
+  // of a guide (the user asked a question between steps) leaves the guide
+  // as it was, so "go back to step 2" still shows that step as it was, and
+  // the next step is still drawn from the one before it.
+  latest: Record<SlideMode, ShownSlideshow | null>;
+  // The slideshow whose slide was shown last. An identical request is
+  // dropped as a repeat (Gemini Live) only while its slideshow is still the
+  // one shown; after the other mode's slideshow, it is a request to see the
+  // slide again.
+  lastShown: ShownSlideshow | null;
+  // An identical slide asked for twice (Gemini Live) is shown once.
+  repeats: ReturnType<typeof createRepeatGuard>;
+}
 
-// The slideshow whose slide was shown last. An identical request is dropped
-// as a repeat (Gemini Live) only while its slideshow is still the one shown;
-// after the other mode's slideshow, it is a request to see the slide again.
-let lastShown: ShownSlideshow | null = null;
+const stateOf = perConversation((): SlideState => ({
+  latest: { presentation: null, steps: null },
+  lastShown: null,
+  repeats: createRepeatGuard(),
+}));
 
-function slideshowFor(slide: SlideArgs): ShownSlideshow {
-  const shown = latest[slide.mode];
+function slideshowFor(state: SlideState, slide: SlideArgs): ShownSlideshow {
+  const shown = state.latest[slide.mode];
   const same =
     shown?.totalSlides === slide.totalSlides &&
     (slide.slide !== 1 || shown.firstTitle === slide.title);
@@ -121,19 +127,20 @@ function slideshowFor(slide: SlideArgs): ShownSlideshow {
     current: 0,
     shownAt: -Infinity,
   };
-  latest[slide.mode] = started;
+  state.latest[slide.mode] = started;
   return started;
 }
 
 /** A slide shown earlier, shown again as it was, at once. */
 function showAgain(
+  state: SlideState,
   show: ShownSlideshow,
   slide: SlideArgs,
   earlier: ToolResult,
 ): ToolResult {
   show.current = slide.slide;
   show.shownAt = Date.now();
-  lastShown = show;
+  state.lastShown = show;
   const noun = slide.mode === "steps" ? "step" : "slide";
   // A new result, with the host's own ID.
   const { uuid: _uuid, ...shownBefore } = earlier;
@@ -243,7 +250,8 @@ export async function presentSlide(
 ): Promise<ToolResult> {
   const slide = parseSlideArgs(args);
   if (!slide) return { message: SLIDE_ARGS_ERROR, sequence: null };
-  const show = slideshowFor(slide);
+  const state = stateOf(context);
+  const show = slideshowFor(state, slide);
   const guide = slide.mode === "steps";
   // A guide waits for the user. Gemini Live went on to the next step in the
   // reply that explained the current one, whatever the instructions said;
@@ -278,12 +286,12 @@ export async function presentSlide(
       };
     }
     // Going back (or forward again): the step as it was, at once.
-    return showAgain(show, slide, earlier);
+    return showAgain(state, show, slide, earlier);
   }
   // Claimed before anything is awaited, and marked pending at once: a call
   // that arrives meanwhile sees this one (a repeat waits for it, a later
   // guide step is held).
-  const claim = repeats.claim(slideKey(show.id, slide));
+  const claim = state.repeats.claim(slideKey(show.id, slide));
   if ("earlier" in claim) {
     if (!(await claim.earlier)) {
       // The identical call failed: this one tries, from the start.
@@ -291,8 +299,8 @@ export async function presentSlide(
     }
     // A guide's step has replaced it since: shown again, as it was.
     const shownBefore = show.slides.get(slide.slide);
-    if (shownBefore && lastShown !== show) {
-      return showAgain(show, slide, shownBefore);
+    if (shownBefore && state.lastShown !== show) {
+      return showAgain(state, show, slide, shownBefore);
     }
     // Not shown again, and no instructions: the model goes on by itself.
     return {
@@ -313,7 +321,7 @@ export async function presentSlide(
       show.slides.set(slide.slide, image);
       show.current = slide.slide;
       show.shownAt = Date.now();
-      lastShown = show;
+      state.lastShown = show;
     }
     return image;
   } finally {
