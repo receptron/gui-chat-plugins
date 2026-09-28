@@ -68,13 +68,16 @@ picture models draw badly. The model writes the inside of `<body>` for a 1280x72
 Tailwind CSS v4 classes and these entrance animations: `animate-fade-in`, `animate-fade-up`,
 `animate-fade-down`, `animate-slide-in-left`, `animate-slide-in-right`, `animate-zoom-in`,
 `animate-pop` and `animate-draw` (an SVG path drawing itself), staggered with
-`[animation-delay:…]`.
+`[animation-delay:…]`. The slide's own scripts don't run: its animations are CSS.
 
-`slideHtmlDocument(html)` (core entry) makes the page: Tailwind's browser build from jsDelivr, the
-animations, and a Content Security Policy that lets it send nothing out (`connect-src 'none'`;
-images, media and fonts only from `data:`/`blob:` URLs and Google Fonts). The View shows it in an
-iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page can't reach the host's
-pages, storage or cookies, scaled to fit. Tailwind is loaded from the network: offline, the slide
+`slideHtmlDocument(html)` (core entry) makes the page: Tailwind's browser build from jsDelivr (one
+version, checked by its hash), the animations, and a Content Security Policy that lets it send
+nothing out: `connect-src 'none'`; images, media and fonts only from `data:`/`blob:` URLs and
+Google Fonts; and no script but the page's own and Tailwind's, so nothing can navigate the frame to
+a URL carrying the page (a sandbox allows that, and CSP can't forbid it). The slide's `<meta>`,
+`<base>` and `<link>` tags are made plain text (a refresh would navigate), and a link doesn't
+navigate when clicked. The View shows it in an iframe with `sandbox="allow-scripts"` and no
+`allow-same-origin`, so the page can't reach the host's pages, storage or cookies, scaled to fit. Tailwind is loaded from the network: offline, the slide
 appears unstyled.
 
 A host that sends `currentResult` by its saved picture's path only (as MulmoChat does) can't tell

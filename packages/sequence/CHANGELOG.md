@@ -6,7 +6,9 @@
   (words, numbers, lists, comparisons, diagrams), styled with Tailwind CSS v4 and animated, so it
   builds up while the model explains it. The model picks per slide; a slideshow can mix them. The
   View shows it at 1280x720, scaled to fit, in a sandboxed iframe (`sandbox="allow-scripts"`, no
-  network: `connect-src 'none'`, images from `data:`/`blob:` only). Nothing is drawn, so it needs
+  network: `connect-src 'none'`, images from `data:`/`blob:` only; the slide's own scripts, event
+  handlers, `<meta>` refreshes and links don't run, since they could navigate the frame to a URL
+  carrying the slide). Nothing is drawn, so it needs
   no image backend. `slideHtmlDocument(html)` makes the page, for a host that shows one elsewhere.
   Records and results carry `html`; `imagePrompt` is `""` and `imagePath` absent for these slides.
 

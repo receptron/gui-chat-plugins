@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { presentSlide } from "../src/core/presentSlide";
-import { slideHtmlDocument } from "../src/core/slideHtml";
+import { createHash } from "node:crypto";
+import {
+  PAGE_SCRIPT_HASH,
+  neutralizeSlideHtml,
+  slideHtmlDocument,
+} from "../src/core/slideHtml";
 import { fakeHost, record } from "./fakeHost";
 
 // The tools keep state per process, as a host keeps them running: each test
@@ -432,12 +437,37 @@ test("a picture step after an HTML step is drawn without a reference", async () 
 
 test("an HTML slide's page loads Tailwind, the animations and a policy that stops it sending anything", () => {
   const page = slideHtmlDocument('<div class="animate-pop">Hi</div>');
-  assert.match(page, /@tailwindcss\/browser@4/);
+  assert.match(
+    page,
+    /@tailwindcss\/browser@4\.\d+\.\d+\/dist\/index\.global\.js" integrity="sha384-/,
+  );
   assert.match(page, /--animate-pop:/);
   assert.match(page, /connect-src 'none'/);
   assert.match(page, /img-src data: blob:/);
+  // No script but the page's own (by its hash) and Tailwind's file: a
+  // slide's script could navigate the frame to a URL carrying the slide.
+  const scripts = page.match(/script-src ([^;"]*)/)?.[1] ?? "";
+  assert.doesNotMatch(scripts, /unsafe-inline|unsafe-eval/);
+  assert.equal(scripts.split(" ").length, 2);
   assert.match(
     page,
     /<body[^>]*>\n<div class="animate-pop">Hi<\/div>\n<\/body>/,
   );
+});
+
+test("the page's own script is the one its hash allows", () => {
+  const page = slideHtmlDocument("");
+  const own = page.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+  const hash = createHash("sha256").update(own).digest("base64");
+  assert.equal(PAGE_SCRIPT_HASH, `sha256-${hash}`);
+  assert.ok(page.includes(`'${PAGE_SCRIPT_HASH}'`));
+});
+
+test("a slide's meta, base and link tags are plain text", () => {
+  const html = neutralizeSlideHtml(
+    '<META http-equiv="refresh" content="0;url=https://x.example/"><base href="https://x.example/"><link rel="prefetch" href="https://x.example/"><me<meta>ta http-equiv="refresh"><metadata-card>ok</metadata-card>',
+  );
+  assert.doesNotMatch(html, /<(meta|base|link)\b/i);
+  assert.match(html, /&lt;META http-equiv/);
+  assert.match(html, /<metadata-card>ok<\/metadata-card>/);
 });

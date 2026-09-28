@@ -3,7 +3,8 @@
 // as the page slideHtmlDocument() makes of it. The page loads Tailwind's
 // browser build, which compiles the classes the slide uses as it loads, and
 // defines a few entrance animations as Tailwind utilities (animate-fade-up,
-// …), so a slide can build itself up while the model explains it.
+// …), so a slide can build itself up while the model explains it. The
+// model's HTML has no scripts: the animations are CSS.
 //
 // A string, not the DOM: the core entry runs wherever the host runs
 // execute(), a server included.
@@ -14,23 +15,12 @@ export const SLIDE_HEIGHT = 720;
 /** The most HTML a slide may have, in characters. */
 export const MAX_SLIDE_HTML = 60_000;
 
-const TAILWIND = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
-
-// The slide is model-written. The View's iframe is sandbox="allow-scripts"
-// without allow-same-origin, so the page has an opaque origin and can't reach
-// the host's pages, storage or cookies; this policy stops it sending anything
-// out: no fetch, and images, media and fonts only from data:/blob: URLs and
-// Google Fonts (with any https: source, a script could send the slide out in
-// an image URL). Scripts: inline ones, and Tailwind's.
-const SLIDE_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline' https://cdn.jsdelivr.net",
-  "style-src 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src https://fonts.gstatic.com data:",
-  "img-src data: blob:",
-  "media-src data: blob:",
-  "connect-src 'none'",
-].join("; ");
+// Tailwind's browser build, one version (the one the package builds with),
+// checked by its hash: the policy below allows this file only.
+const TAILWIND =
+  "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3/dist/index.global.js";
+const TAILWIND_INTEGRITY =
+  "sha384-2ql948lIdLcGEE0/qxNiudyTjgauA3RDJERu5xW75kFCvSl5a9odyQYCb6tEjnmB";
 
 /** The animations every slide has, as `animate-<name>` classes. They keep
  *  their first frame while delayed (fill mode both), so an element with a
@@ -66,10 +56,12 @@ const THEME = `
   @keyframes draw { from { stroke-dashoffset: var(--draw-length, 1000) } to { stroke-dashoffset: 0 } }
 }`;
 
-// The body is hidden until Tailwind has compiled the slide's classes, so it
-// doesn't flash unstyled, and animations start when it appears. Shown anyway
-// after a second: a slide without Tailwind (offline) is better than none.
-const REVEAL = `
+// The page's own script. The body is hidden until Tailwind has compiled the
+// slide's classes, so it doesn't flash unstyled, and animations start when it
+// appears; shown anyway after a second: a slide without Tailwind (offline) is
+// better than none. A link doesn't navigate: the slide isn't a page to leave,
+// and the frame going to a URL would send what the URL carries.
+const PAGE_SCRIPT = `
 (() => {
   const show = () => document.documentElement.classList.add("ready");
   const ready = () => requestAnimationFrame(() => requestAnimationFrame(show));
@@ -77,7 +69,43 @@ const REVEAL = `
     document.querySelector("style:not([type]):not(#slide-base)") ? ready() : setTimeout(check, 30);
   addEventListener("DOMContentLoaded", check);
   setTimeout(show, 1000);
+  addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
+  }, true);
 })();`;
+
+/** PAGE_SCRIPT's hash, which the policy allows (checked by a test). */
+export const PAGE_SCRIPT_HASH =
+  "sha256-/oU054LTPiGoM/8PKPWF9+O0591z6CsbhwGYiQJywrA=";
+
+// The slide is model-written, and the model may have read a page written to
+// steer it. The View's iframe is sandbox="allow-scripts" without
+// allow-same-origin, so the page has an opaque origin and can't reach the
+// host's pages, storage or cookies, submit a form or open a window. This
+// policy stops it sending anything out: no fetch; images, media and fonts only
+// from data:/blob: URLs and Google Fonts (with any https: source, the slide
+// could go out in an image URL); and no script but the page's own and
+// Tailwind's, so nothing can navigate the frame to a URL carrying the page
+// (the sandbox allows a frame to navigate itself, and CSP can't forbid it).
+// No inline script, no event handler attribute, no javascript: URL.
+const SLIDE_CSP = [
+  "default-src 'none'",
+  `script-src '${PAGE_SCRIPT_HASH}' ${TAILWIND}`,
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com data:",
+  "img-src data: blob:",
+  "media-src data: blob:",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "base-uri 'none'",
+].join("; ");
+
+/** The slide's HTML with the tags that act on the page from outside the
+ *  body made plain text: <meta> (a refresh navigates the frame, a policy of
+ *  its own), <base> and <link> (prefetches). No tag can be rebuilt by the
+ *  replacement, which only adds "&lt;". */
+export const neutralizeSlideHtml = (html: string): string =>
+  html.replace(/<(?=(meta|base|link)\b)/gi, "&lt;");
 
 const BASE_STYLE = `
 html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; overflow: hidden; }
@@ -92,12 +120,12 @@ export function slideHtmlDocument(html: string): string {
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${SLIDE_CSP}">
 <style id="slide-base">${BASE_STYLE}</style>
-<script>${REVEAL}</script>
-<script src="${TAILWIND}"></script>
+<script>${PAGE_SCRIPT}</script>
+<script src="${TAILWIND}" integrity="${TAILWIND_INTEGRITY}" crossorigin="anonymous"></script>
 <style type="text/tailwindcss">${THEME}</style>
 </head>
 <body class="bg-white text-slate-900 font-sans antialiased">
-${html}
+${neutralizeSlideHtml(html)}
 </body>
 </html>`;
 }
