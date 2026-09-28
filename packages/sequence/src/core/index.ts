@@ -41,5 +41,12 @@ export const presentPanelPluginCore: SequencePluginCore = {
 };
 
 export * from "./definitions";
+export {
+  MAX_SLIDE_HTML,
+  SLIDE_ANIMATIONS,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  slideHtmlDocument,
+} from "./slideHtml";
 export { SLIDESHOWS_DIR, STORYBOARDS_DIR, loadRecord } from "./records";
 export type { SequenceContext } from "./host";
