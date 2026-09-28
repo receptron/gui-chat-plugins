@@ -59,8 +59,10 @@ const THEME = `
 // The page's own script. The body is hidden until Tailwind has compiled the
 // slide's classes, so it doesn't flash unstyled, and animations start when it
 // appears; shown anyway after a second: a slide without Tailwind (offline) is
-// better than none. A link doesn't navigate: the slide isn't a page to leave,
-// and the frame going to a URL would send what the URL carries.
+// better than none, which is why Tailwind is deferred: a stalled CDN would
+// otherwise hold the body back. A link (an <a>, or an image map's <area>)
+// doesn't navigate: the slide isn't a page to leave, and the frame going to a
+// URL would send what the URL carries.
 const PAGE_SCRIPT = `
 (() => {
   const show = () => document.documentElement.classList.add("ready");
@@ -70,13 +72,13 @@ const PAGE_SCRIPT = `
   addEventListener("DOMContentLoaded", check);
   setTimeout(show, 1000);
   addEventListener("click", (event) => {
-    if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
+    if (event.target instanceof Element && event.target.closest("a, area")) event.preventDefault();
   }, true);
 })();`;
 
 /** PAGE_SCRIPT's hash, which the policy allows (checked by a test). */
 export const PAGE_SCRIPT_HASH =
-  "sha256-/oU054LTPiGoM/8PKPWF9+O0591z6CsbhwGYiQJywrA=";
+  "sha256-MZyL5rvWmIVxl3WUuDU5BqzPJGR2/fV/YPh01MNyUoM=";
 
 // The slide is model-written, and the model may have read a page written to
 // steer it. The View's iframe is sandbox="allow-scripts" without
@@ -121,7 +123,7 @@ export function slideHtmlDocument(html: string): string {
 <meta http-equiv="Content-Security-Policy" content="${SLIDE_CSP}">
 <style id="slide-base">${BASE_STYLE}</style>
 <script>${PAGE_SCRIPT}</script>
-<script src="${TAILWIND}" integrity="${TAILWIND_INTEGRITY}" crossorigin="anonymous"></script>
+<script defer src="${TAILWIND}" integrity="${TAILWIND_INTEGRITY}" crossorigin="anonymous"></script>
 <style type="text/tailwindcss">${THEME}</style>
 </head>
 <body class="bg-white text-slate-900 font-sans antialiased">

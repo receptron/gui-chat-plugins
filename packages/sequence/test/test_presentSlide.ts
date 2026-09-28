@@ -449,6 +449,10 @@ test("an HTML slide's page loads Tailwind, the animations and a policy that stop
   const scripts = page.match(/script-src ([^;"]*)/)?.[1] ?? "";
   assert.doesNotMatch(scripts, /unsafe-inline|unsafe-eval/);
   assert.equal(scripts.split(" ").length, 2);
+  // Links, image-map areas included, don't navigate; Tailwind doesn't hold
+  // the body back.
+  assert.match(page, /closest\("a, area"\)\) event\.preventDefault\(\)/);
+  assert.match(page, /<script defer src="https:\/\/cdn\.jsdelivr\.net/);
   assert.match(
     page,
     /<body[^>]*>\n<div class="animate-pop">Hi<\/div>\n<\/body>/,
