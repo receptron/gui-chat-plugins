@@ -26,6 +26,7 @@ import {
   drawPicture,
   imageOf,
   newSequenceId,
+  perConversation,
   usableReferences,
   userSpokeSince,
   type SequenceContext,
@@ -275,15 +276,22 @@ async function drawPanel(
   };
 }
 
-// An identical panel asked for twice (Gemini Live) is shown once.
-const repeats = createRepeatGuard();
+/** What a conversation's stories keep between calls. */
+interface StoryState {
+  // An identical panel asked for twice (Gemini Live) is shown once.
+  repeats: ReturnType<typeof createRepeatGuard>;
+  // The panel waiting for the user's choice, by storyboard, and when it
+  // appeared. Grok sometimes went on to the next panel in the reply that
+  // read the choices out; such a panel is held back until the user speaks.
+  // A panel being drawn is here too, with shownAt Infinity: its choices
+  // aren't known yet, so a later panel waits for it.
+  awaitingChoice: Map<string, { panel: number; shownAt: number }>;
+}
 
-// The panel waiting for the user's choice, by storyboard, and when it
-// appeared. Grok sometimes went on to the next panel in the reply that read
-// the choices out; such a panel is held back until the user speaks. A panel
-// being drawn is here too, with shownAt Infinity: its choices aren't known
-// yet, so a later panel waits for it.
-const awaitingChoice = new Map<string, { panel: number; shownAt: number }>();
+const stateOf = perConversation((): StoryState => ({
+  repeats: createRepeatGuard(),
+  awaitingChoice: new Map(),
+}));
 
 export async function presentPanel(
   context: SequenceContext,
@@ -292,6 +300,7 @@ export async function presentPanel(
   const parsed = parsePanelArgs(args);
   if (!parsed) return { message: PANEL_ARGS_ERROR, sequence: null };
   const { storyboardId, panel } = parsed;
+  const { repeats, awaitingChoice } = stateOf(context);
 
   // Everything up to marking this panel pending happens before anything is
   // awaited: a call that arrives meanwhile sees it (a repeat waits for it, a

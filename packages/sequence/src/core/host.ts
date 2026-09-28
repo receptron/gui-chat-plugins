@@ -111,3 +111,34 @@ export async function drawPicture(
     return { message: `image generation failed: ${reason}` };
   }
 }
+
+// Conversations kept at once; the least recently used is dropped past this.
+const MAX_CONVERSATIONS = 50;
+
+/**
+ * State kept between calls, one per conversation (gui-chat-protocol's
+ * ToolContext.conversationId): a host that runs execute() on a server for
+ * several browser tabs or sessions would otherwise mix them (one tab's slide
+ * filed under the other's slideshow). A host that doesn't say has one.
+ */
+export function perConversation<T>(
+  create: () => T,
+): (context: SequenceContext) => T {
+  const states = new Map<string, T>();
+  return (context) => {
+    const id = context.conversationId ?? "";
+    let state = states.get(id);
+    if (state === undefined) {
+      state = create();
+    } else {
+      // Most recently used last, so the first is the one to drop.
+      states.delete(id);
+    }
+    states.set(id, state);
+    if (states.size > MAX_CONVERSATIONS) {
+      const oldest = states.keys().next().value;
+      if (oldest !== undefined) states.delete(oldest);
+    }
+    return state;
+  };
+}
