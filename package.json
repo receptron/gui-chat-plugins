@@ -6,9 +6,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "yarn workspaces run build",
-    "typecheck": "yarn workspaces run typecheck",
-    "test": "yarn workspaces run test",
+    "build": "node scripts/affected.mjs run build",
+    "typecheck": "node scripts/affected.mjs run typecheck",
+    "test": "node scripts/affected.mjs run test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "release": "bash scripts/release.sh"

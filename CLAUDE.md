@@ -6,8 +6,16 @@ plugin under `@gui-chat-plugin/`, in `packages/<name>/`. MIT. The hosts that use
 
 ## Commands
 
-- `yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` — every package; CI runs them on Node
-  22/24 × ubuntu/windows/macos, plus `prettier --check`.
+- `yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` — every package (in dependency order);
+  CI runs them on Node 22/24 × ubuntu/windows/macos, plus `prettier --check`.
+- **CI checks only what a pull request affects** (`scripts/affected.mjs`): the packages it changed
+  and the ones that depend on them are built, typechecked and tested, and the workspace packages
+  they depend on are built too. A change outside `packages/` that isn't a root doc (the lockfile,
+  root config, the workflow, the script) checks every package, as do a push to main, the Monday
+  run and a manual run. Lint and prettier always check the whole repo. To see what a branch
+  affects: `node scripts/affected.mjs list origin/main`. Dependencies are read from each
+  `package.json`, so a package that imports another workspace package must list it there, or a
+  change to that package won't check it.
 - `yarn release <package>` — publishes one package and pushes its `<package>-v<version>` tag
   (`scripts/release.sh`). The maintainer runs it after the PR that bumps the version and adds the
   package's `CHANGELOG.md` entry is merged. Don't publish from an agent.
