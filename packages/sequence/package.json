@@ -1,6 +1,6 @@
 {
   "name": "@gui-chat-plugin/sequence",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Slideshows, step-by-step guides and stories told in pictures (presentSlide, defineStoryboard, presentPanel) for GUI Chat Protocol hosts",
   "type": "module",
   "main": "./dist/index.cjs",
