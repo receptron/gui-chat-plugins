@@ -72,8 +72,10 @@ declarative `data-animation` attributes: `animate` (`data-opacity`, `data-transl
 (an `html_tailwind` beat with `animation: true`) moves the same way. The page plays them with its
 own player (MIT; MulmoCast is AGPL), measured against MulmoCast's: the same values at the same
 times. An animation without `data-end` runs to the end of the beat in a movie, and for
-`SLIDE_AUTO_END_SECONDS` (8) here. As in MulmoCast, CSS animations and transitions don't play, and
-the slide's own scripts don't run.
+`SLIDE_AUTO_END_SECONDS` (8) here. CSS animations and transitions don't play: each is shown at its
+end. MulmoCast would hold them at their first frame (an element faded in with `@keyframes` stays
+transparent), so a host making a movie adds `SLIDE_CSS_ANIMATIONS_FINISHED` (a `<style>`'s rules)
+to the HTML it passes on. The slide's own scripts don't run.
 
 `slideHtmlDocument(html)` (core entry) makes the page: Tailwind's browser build from jsDelivr (one
 version, checked by its hash), the animation player, and a Content Security Policy that lets it send

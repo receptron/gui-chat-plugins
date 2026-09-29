@@ -5,7 +5,7 @@
 // plays MulmoCast's data-animation attributes, so a slide builds itself up
 // while the model explains it, and does the same in a movie made from it
 // (an html_tailwind beat with animation: true). The model's HTML has no
-// scripts, and CSS animations don't play, here or in MulmoCast.
+// scripts, and CSS animations don't play: they're shown at their end.
 //
 // A string, not the DOM: the core entry runs wherever the host runs
 // execute(), a server included.
@@ -155,19 +155,31 @@ const PAGE_SCRIPT = `
     };
     requestAnimationFrame(tick);
   };
+  // Collected once the body is parsed: at DOMContentLoaded, or earlier when
+  // the fallback shows the slide while a slow Tailwind still holds
+  // DOMContentLoaded back (the body is parsed by then: readyState is
+  // "interactive" before deferred scripts run). Played once both are done.
+  let collected = false;
   let shown = false;
+  const init = () => {
+    if (collected || document.readyState === "loading") return;
+    collected = true;
+    collect();
+    seek(0);
+    if (shown) play();
+  };
   const show = () => {
     if (shown) return;
+    init();
     shown = true;
     document.documentElement.classList.add("ready");
-    play();
+    if (collected) play();
   };
   const ready = () => requestAnimationFrame(() => requestAnimationFrame(show));
   const check = () =>
     document.querySelector("style:not([type]):not(#slide-base)") ? ready() : setTimeout(check, 30);
   addEventListener("DOMContentLoaded", () => {
-    collect();
-    seek(0);
+    init();
     check();
   });
   setTimeout(show, 1000);
@@ -178,7 +190,7 @@ const PAGE_SCRIPT = `
 
 /** PAGE_SCRIPT's hash, which the policy allows (checked by a test). */
 export const PAGE_SCRIPT_HASH =
-  "sha256-yDqH8FFP3U9NyKYcTsDpG5oWWN7dvPFrnglZi8Mhfto=";
+  "sha256-0zsqCvkCfq5Z1iJCn46NiAtSAyIr/JDkyNs/Fae1J+Y=";
 
 // The slide is model-written, and the model may have read a page written to
 // steer it. The View's iframe is sandbox="allow-scripts" without
@@ -217,10 +229,19 @@ export const neutralizeSlideHtml = (html: string): string =>
     .replace(/<(?=(meta|base|link)\b)/gi, "&lt;")
     .replace(/shadowroot/gi, "data-no-shadow-root");
 
+/** CSS rules that stop a slide's CSS animations and transitions, which the
+ *  slide isn't to use (it animates with data-animation), showing each at its
+ *  end: an element the model faded in with its own @keyframes is seen, not
+ *  held at its first, transparent frame. MulmoCast pauses CSS animations at
+ *  that frame, so a host that makes a movie of the slide adds these to the
+ *  HTML it passes on (a zero-length animation is at its end even paused). */
+export const SLIDE_CSS_ANIMATIONS_FINISHED =
+  "*, *::before, *::after { animation-play-state: paused !important; animation-duration: 0s !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: both !important; transition: none !important; }";
+
 const BASE_STYLE = `
 html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; overflow: hidden; }
 html:not(.ready) body { visibility: hidden; }
-*, *::before, *::after { animation-play-state: paused !important; transition: none !important; }`;
+${SLIDE_CSS_ANIMATIONS_FINISHED}`;
 
 /** The page an HTML slide is shown as. */
 export function slideHtmlDocument(html: string): string {

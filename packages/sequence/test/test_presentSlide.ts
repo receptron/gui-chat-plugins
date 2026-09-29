@@ -5,6 +5,7 @@ import { presentSlide } from "../src/core/presentSlide";
 import { createHash } from "node:crypto";
 import {
   PAGE_SCRIPT_HASH,
+  SLIDE_CSS_ANIMATIONS_FINISHED,
   neutralizeSlideHtml,
   slideHtmlDocument,
 } from "../src/core/slideHtml";
@@ -437,12 +438,13 @@ test("a picture step after an HTML step is drawn without a reference", async () 
 
 test("an HTML slide's page loads Tailwind, plays data-animation and has a policy that stops it sending anything", () => {
   const page = slideHtmlDocument('<div class="animate-pop">Hi</div>');
-  // MulmoCast's data-animation attributes, and no CSS animations, as in a
-  // movie MulmoCast makes of the slide.
+  // MulmoCast's data-animation attributes; CSS animations shown at their
+  // end, by the rules a host adds to a movie's HTML.
   assert.match(page, /querySelectorAll\("\[data-animation\]"\)/);
+  assert.ok(page.includes(SLIDE_CSS_ANIMATIONS_FINISHED));
   assert.match(
-    page,
-    /animation-play-state: paused !important; transition: none !important/,
+    SLIDE_CSS_ANIMATIONS_FINISHED,
+    /animation-duration: 0s !important/,
   );
   assert.match(
     page,

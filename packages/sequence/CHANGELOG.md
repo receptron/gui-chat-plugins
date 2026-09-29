@@ -8,10 +8,12 @@
   beat with `animation: true`) now moves as the View does; MulmoCast pauses CSS animations, so the
   0.3 slides' `animate-fade-up` and the like didn't move there. The page plays them with its own
   player, written for this package (MIT; MulmoCast is AGPL) and checked against MulmoCast's
-  renderer: 56 of 56 sampled values equal. CSS animations and transitions are paused here too, as
-  in MulmoCast.
-- Breaking: `SLIDE_ANIMATIONS` (the `animate-*` classes) is gone; `SLIDE_ANIMATION_KINDS` and
-  `SLIDE_AUTO_END_SECONDS` are new.
+  renderer: 56 of 56 sampled values equal. CSS animations and transitions don't play; each is
+  shown at its end, so an element faded in with the model's own `@keyframes` is seen rather than
+  held transparent. `SLIDE_CSS_ANIMATIONS_FINISHED` is those rules, for a host to add to the HTML
+  it gives MulmoCast, which would hold such an element at its first frame.
+- Breaking: `SLIDE_ANIMATIONS` (the `animate-*` classes) is gone; `SLIDE_ANIMATION_KINDS`,
+  `SLIDE_AUTO_END_SECONDS` and `SLIDE_CSS_ANIMATIONS_FINISHED` are new.
 
 ## 0.3.1
 
