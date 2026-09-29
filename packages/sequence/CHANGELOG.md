@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- **HTML slides animate with MulmoCast's `data-animation` attributes**, not CSS: `animate`
+  (opacity, translate, scale, rotate, width, height), `counter` and `typewriter`, with `data-start`
+  and `data-end` in seconds. A movie made from the slides (MulmoChat's makeMovie: an `html_tailwind`
+  beat with `animation: true`) now moves as the View does; MulmoCast pauses CSS animations, so the
+  0.3 slides' `animate-fade-up` and the like didn't move there. The page plays them with its own
+  player, written for this package (MIT; MulmoCast is AGPL) and checked against MulmoCast's
+  renderer: 56 of 56 sampled values equal. CSS animations and transitions are paused here too, as
+  in MulmoCast.
+- Breaking: `SLIDE_ANIMATIONS` (the `animate-*` classes) is gone; `SLIDE_ANIMATION_KINDS` and
+  `SLIDE_AUTO_END_SECONDS` are new.
+
 ## 0.3.1
 
 - **"HTML slides" go to presentSlide**: the prompt says that when the user asks for HTML slides,

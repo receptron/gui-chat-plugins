@@ -43,7 +43,8 @@ export const presentPanelPluginCore: SequencePluginCore = {
 export * from "./definitions";
 export {
   MAX_SLIDE_HTML,
-  SLIDE_ANIMATIONS,
+  SLIDE_ANIMATION_KINDS,
+  SLIDE_AUTO_END_SECONDS,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   slideHtmlDocument,

@@ -2,9 +2,10 @@
 // canvas with Tailwind classes, and the View shows it in a sandboxed iframe
 // as the page slideHtmlDocument() makes of it. The page loads Tailwind's
 // browser build, which compiles the classes the slide uses as it loads, and
-// defines a few entrance animations as Tailwind utilities (animate-fade-up,
-// …), so a slide can build itself up while the model explains it. The
-// model's HTML has no scripts: the animations are CSS.
+// plays MulmoCast's data-animation attributes, so a slide builds itself up
+// while the model explains it, and does the same in a movie made from it
+// (an html_tailwind beat with animation: true). The model's HTML has no
+// scripts, and CSS animations don't play, here or in MulmoCast.
 //
 // A string, not the DOM: the core entry runs wherever the host runs
 // execute(), a server included.
@@ -22,54 +23,153 @@ const TAILWIND =
 const TAILWIND_INTEGRITY =
   "sha384-2ql948lIdLcGEE0/qxNiudyTjgauA3RDJERu5xW75kFCvSl5a9odyQYCb6tEjnmB";
 
-/** The animations every slide has, as `animate-<name>` classes. They keep
- *  their first frame while delayed (fill mode both), so an element with a
- *  delay stays hidden until its turn. */
-export const SLIDE_ANIMATIONS = [
-  "fade-in",
-  "fade-up",
-  "fade-down",
-  "slide-in-left",
-  "slide-in-right",
-  "zoom-in",
-  "pop",
-  "draw",
+/** The data-animation kinds a slide can use: MulmoCast's (its html_tailwind
+ *  beats with `animation: true`), so a slide animates the same in a movie
+ *  made from it. MulmoCast also has stagger, codeReveal, blink, coverZoom and
+ *  coverPan; not these. */
+export const SLIDE_ANIMATION_KINDS = [
+  "animate",
+  "counter",
+  "typewriter",
 ] as const;
 
-const THEME = `
-@theme {
-  --animate-fade-in: fade-in 0.8s ease-out both;
-  --animate-fade-up: fade-up 0.8s ease-out both;
-  --animate-fade-down: fade-down 0.8s ease-out both;
-  --animate-slide-in-left: slide-in-left 0.8s ease-out both;
-  --animate-slide-in-right: slide-in-right 0.8s ease-out both;
-  --animate-zoom-in: zoom-in 0.8s ease-out both;
-  --animate-pop: pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  --animate-draw: draw 1.5s ease-in-out both;
-  @keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
-  @keyframes fade-up { from { opacity: 0; transform: translateY(40px) } to { opacity: 1; transform: none } }
-  @keyframes fade-down { from { opacity: 0; transform: translateY(-40px) } to { opacity: 1; transform: none } }
-  @keyframes slide-in-left { from { opacity: 0; transform: translateX(-80px) } to { opacity: 1; transform: none } }
-  @keyframes slide-in-right { from { opacity: 0; transform: translateX(80px) } to { opacity: 1; transform: none } }
-  @keyframes zoom-in { from { opacity: 0; transform: scale(0.8) } to { opacity: 1; transform: none } }
-  @keyframes pop { from { opacity: 0; transform: scale(0.5) } to { opacity: 1; transform: none } }
-  @keyframes draw { from { stroke-dashoffset: var(--draw-length, 1000) } to { stroke-dashoffset: 0 } }
-}`;
+/** How long an animation without data-end runs here, in seconds. In a movie
+ *  it runs to the end of its beat, which the narration decides and the View
+ *  doesn't know. */
+export const SLIDE_AUTO_END_SECONDS = 8;
 
-// The page's own script. The body is hidden until Tailwind has compiled the
-// slide's classes, so it doesn't flash unstyled, and animations start when it
-// appears; shown anyway after a second: a slide without Tailwind (offline) is
-// better than none, which is why Tailwind is deferred: a stalled CDN would
-// otherwise hold the body back. A link (an <a>, or an image map's <area>)
-// doesn't navigate: the slide isn't a page to leave, and the frame going to a
-// URL would send what the URL carries.
+// The page's own script, in two parts.
+//
+// Showing the slide: the body is hidden until Tailwind has compiled the
+// slide's classes, so it doesn't flash unstyled, and its animations start
+// when it appears; shown anyway after a second: a slide without Tailwind
+// (offline) is better than none, which is why Tailwind is deferred: a stalled
+// CDN would otherwise hold the body back. A link (an <a>, or an image map's
+// <area>) doesn't navigate: the slide isn't a page to leave, and the frame
+// going to a URL would send what the URL carries.
+//
+// Playing its animations: MulmoCast's declarative data-animation attributes,
+// as MulmoCast's movie renderer plays them (written for this package, which
+// is MIT; MulmoCast is AGPL), measured against it: times in seconds, values
+// "from,to" or "from,to,unit", linear unless data-easing says easeIn, easeOut
+// or easeInOut; transforms in the order translateX, translateY, scale,
+// rotate, rotateX, rotateY, rotateZ; a counter rounds to data-decimals; a
+// typewriter shows its share of the text. The first frame is set before the
+// slide appears, so an element that fades in isn't seen first.
+// window.__slideSeek(seconds) shows the slide at a time (for tests).
 const PAGE_SCRIPT = `
 (() => {
-  const show = () => document.documentElement.classList.add("ready");
+  const EASE = {
+    linear: (t) => t,
+    easeIn: (t) => t * t,
+    easeOut: (t) => 1 - (1 - t) * (1 - t),
+    easeInOut: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+  };
+  const AUTO_END = ${SLIDE_AUTO_END_SECONDS};
+  const TRANSFORMS = [
+    ["data-translate-x", "translateX", "px"],
+    ["data-translate-y", "translateY", "px"],
+    ["data-scale", "scale", ""],
+    ["data-rotate", "rotate", "deg"],
+    ["data-rotate-x", "rotateX", "deg"],
+    ["data-rotate-y", "rotateY", "deg"],
+    ["data-rotate-z", "rotateZ", "deg"],
+  ];
+  const STYLES = [
+    ["data-opacity", "opacity", ""],
+    ["data-width", "width", "px"],
+    ["data-height", "height", "px"],
+  ];
+  const number = (value, fallback) => {
+    const n = Number(value);
+    return value !== null && value.trim() !== "" && Number.isFinite(n) ? n : fallback;
+  };
+  const range = (value, unit) => {
+    if (value === null) return null;
+    const parts = value.split(",").map((part) => part.trim());
+    const from = Number(parts[0]);
+    const to = Number(parts[1]);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    return { from, to, unit: parts[2] || unit };
+  };
+  const ranges = (el, table) =>
+    table
+      .map(([attr, name, unit]) => [name, range(el.getAttribute(attr), unit)])
+      .filter(([, r]) => r);
+  let entries = [];
+  const collect = () => {
+    entries = [...document.querySelectorAll("[data-animation]")].map((el) => {
+      const kind = el.getAttribute("data-animation");
+      const end = el.getAttribute("data-end");
+      const entry = {
+        el,
+        kind,
+        start: number(el.getAttribute("data-start"), 0),
+        end: end === null || end.trim() === "auto" ? null : number(end, null),
+        ease: EASE[el.getAttribute("data-easing")] || EASE.linear,
+      };
+      if (kind === "animate") {
+        entry.transforms = ranges(el, TRANSFORMS);
+        entry.styles = ranges(el, STYLES);
+      } else if (kind === "counter") {
+        entry.from = number(el.getAttribute("data-from"), 0);
+        entry.to = number(el.getAttribute("data-to"), 0);
+        entry.decimals = Math.max(0, Math.round(number(el.getAttribute("data-decimals"), 0)));
+        entry.prefix = el.getAttribute("data-prefix") || "";
+        entry.suffix = el.getAttribute("data-suffix") || "";
+      } else if (kind === "typewriter") {
+        entry.text = el.getAttribute("data-text") ?? el.textContent;
+      } else {
+        return null;
+      }
+      return entry;
+    }).filter(Boolean);
+  };
+  const seek = (t) => {
+    for (const e of entries) {
+      const end = e.end ?? AUTO_END;
+      const span = end - e.start;
+      const p = span > 0 ? Math.min(1, Math.max(0, (t - e.start) / span)) : t >= e.start ? 1 : 0;
+      const k = e.ease(p);
+      const at = (r) => r.from + (r.to - r.from) * k;
+      if (e.kind === "animate") {
+        if (e.transforms.length) {
+          e.el.style.transform = e.transforms.map(([name, r]) => name + "(" + at(r) + r.unit + ")").join(" ");
+        }
+        for (const [name, r] of e.styles) e.el.style[name] = at(r) + r.unit;
+      } else if (e.kind === "counter") {
+        e.el.textContent = e.prefix + (e.from + (e.to - e.from) * k).toFixed(e.decimals) + e.suffix;
+      } else {
+        e.el.textContent = e.text.slice(0, Math.floor(e.text.length * k));
+      }
+    }
+  };
+  window.__slideSeek = seek;
+  const play = () => {
+    const last = Math.max(0, ...entries.map((e) => e.end ?? AUTO_END));
+    const begun = performance.now();
+    const tick = (now) => {
+      const t = (now - begun) / 1000;
+      seek(t);
+      if (t <= last) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+  let shown = false;
+  const show = () => {
+    if (shown) return;
+    shown = true;
+    document.documentElement.classList.add("ready");
+    play();
+  };
   const ready = () => requestAnimationFrame(() => requestAnimationFrame(show));
   const check = () =>
     document.querySelector("style:not([type]):not(#slide-base)") ? ready() : setTimeout(check, 30);
-  addEventListener("DOMContentLoaded", check);
+  addEventListener("DOMContentLoaded", () => {
+    collect();
+    seek(0);
+    check();
+  });
   setTimeout(show, 1000);
   addEventListener("click", (event) => {
     if (event.target instanceof Element && event.target.closest("a, area")) event.preventDefault();
@@ -78,7 +178,7 @@ const PAGE_SCRIPT = `
 
 /** PAGE_SCRIPT's hash, which the policy allows (checked by a test). */
 export const PAGE_SCRIPT_HASH =
-  "sha256-MZyL5rvWmIVxl3WUuDU5BqzPJGR2/fV/YPh01MNyUoM=";
+  "sha256-yDqH8FFP3U9NyKYcTsDpG5oWWN7dvPFrnglZi8Mhfto=";
 
 // The slide is model-written, and the model may have read a page written to
 // steer it. The View's iframe is sandbox="allow-scripts" without
@@ -120,7 +220,7 @@ export const neutralizeSlideHtml = (html: string): string =>
 const BASE_STYLE = `
 html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; overflow: hidden; }
 html:not(.ready) body { visibility: hidden; }
-html:not(.ready) body * { animation-play-state: paused !important; }`;
+*, *::before, *::after { animation-play-state: paused !important; transition: none !important; }`;
 
 /** The page an HTML slide is shown as. */
 export function slideHtmlDocument(html: string): string {
@@ -132,7 +232,6 @@ export function slideHtmlDocument(html: string): string {
 <style id="slide-base">${BASE_STYLE}</style>
 <script>${PAGE_SCRIPT}</script>
 <script defer src="${TAILWIND}" integrity="${TAILWIND_INTEGRITY}" crossorigin="anonymous"></script>
-<style type="text/tailwindcss">${THEME}</style>
 </head>
 <body class="bg-white text-slate-900 font-sans antialiased">
 ${neutralizeSlideHtml(html)}
