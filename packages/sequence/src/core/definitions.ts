@@ -75,6 +75,14 @@ export function parseSlideArgs(
   };
 }
 
+// How to explain a slide: the subject, not the slide. Asked only to
+// "explain it", OpenAI's voice models said a line about the slide ("Let's
+// start with the big picture, then we'll move on") and went on to the next,
+// and the user heard "This first slide is about quantum theory" rather than
+// "Quantum theory is…".
+const NARRATE_SUBJECT =
+  'teach its subject in at least two sentences, as a presenter speaking to the audience. Begin with the content itself, never with the slide or your plan: no "This slide is about…", "The first slide shows…", "Let\'s unpack this one", "Next, I\'ll…". A line about the slide is not an explanation.';
+
 /** What the model does once a slide is on the screen. */
 export const slideShownInstructions = ({
   slide,
@@ -86,16 +94,16 @@ export const slideShownInstructions = ({
   if (mode === "steps") {
     const label = `Step ${slide} of ${totalSlides}${titled}`;
     return slide < totalSlides
-      ? `${label} is now on the screen. Explain what to do in this step, then stop and wait while the user does it. When they say they're ready (next, done, go on), call presentSlide for step ${slide + 1} with mode "steps". If they ask to go back or to see a step again, call presentSlide for that step.`
-      : `${label}, the last one, is now on the screen. Explain what to do, then wrap up the guide once the user is done.`;
+      ? `${label} is now on the screen. Say what to do in this step, directly ("Crack two eggs into a bowl…", not "This step is about eggs"), then stop and wait while the user does it. When they say they're ready (next, done, go on), call presentSlide for step ${slide + 1} with mode "steps". If they ask to go back or to see a step again, call presentSlide for that step.`
+      : `${label}, the last one, is now on the screen. Say what to do, directly, then wrap up the guide once the user is done.`;
   }
   const label = `Slide ${slide} of ${totalSlides}${titled}`;
   // The length of each explanation is the model's call: some slides need a
   // sentence, some a paragraph. The "stop" clause is for when the host missed
   // the user's speech (Gemini can report it too late): the model heard it.
   return slide < totalSlides
-    ? `${label} is now on the screen. Explain it, then, in this same reply and without waiting for the user, call presentSlide for slide ${slide + 1}. If the user has asked you to stop, or asked something else, since the slideshow began, answer them instead of going on.`
-    : `${label}, the last one, is now on the screen. Explain it, then wrap up the slideshow.`;
+    ? `${label} is now on the screen. Explain it: ${NARRATE_SUBJECT} Then, in this same reply and without waiting for the user, call presentSlide for slide ${slide + 1}. If the user has asked you to stop, or asked something else, since the slideshow began, answer them instead of going on.`
+    : `${label}, the last one, is now on the screen. Explain it: ${NARRATE_SUBJECT} Then wrap up the slideshow.`;
 };
 
 /** A slideshow as saved in artifacts/slideshows/<id>.json. */
@@ -139,7 +147,7 @@ const SLIDE_HTML_DESCRIPTION = [
 ].join(" ");
 
 export const PRESENT_SLIDE_PROMPT: string =
-  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt) or a designed slide in HTML (html): use a picture for a scene, an object or a place, and HTML for words, numbers, lists, comparisons, timelines and diagrams, which a picture model draws badly; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
+  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt) or a designed slide in HTML (html): use a picture for a scene, an object or a place, and HTML for words, numbers, lists, comparisons, timelines and diagrams, which a picture model draws badly; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
 
 export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
   type: "function",
