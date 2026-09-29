@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- **"HTML slides" go to presentSlide**: the prompt says that when the user asks for HTML slides,
+  presentSlide is the tool, one HTML slide per call, not one HTML page. OpenAI Realtime, asked to
+  "explain this article in HTML slides", wrote a single presentHtml page with its own slide
+  navigation (found in MulmoChat). With this and the hosts' presentHtml prompt, 6 of 6 runs in
+  MulmoChat and 3 of 3 in MulmoGlass made presentSlide HTML slides.
+
 ## 0.3.0
 
 - **HTML slides**: `presentSlide` takes `html` instead of `imagePrompt` for a slide designed in HTML
