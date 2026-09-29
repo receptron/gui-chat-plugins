@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- **Slides are explained, not announced.** Asked only to "explain" the slide on the screen, OpenAI's
+  voice models often said a line about the slide ("Let's start with the big picture, then we'll
+  move on", "This first slide is about quantum theory") and went on to the next. After each slide,
+  the model is now told to teach its subject in at least two sentences, beginning with the content
+  itself, never with the slide or its plan; a guide step says what to do, directly. In MulmoGlass
+  (mock images), OpenAI began 9 of 10 slide explanations with their content, against 3 of 7
+  before; Gemini and Grok already did, and still do.
+
 ## 0.4.0
 
 - **HTML slides animate with MulmoCast's `data-animation` attributes**, not CSS: `animate`

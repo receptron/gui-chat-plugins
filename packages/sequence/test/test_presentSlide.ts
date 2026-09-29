@@ -9,6 +9,7 @@ import {
   neutralizeSlideHtml,
   slideHtmlDocument,
 } from "../src/core/slideHtml";
+import { slideShownInstructions } from "../src/core/definitions";
 import { fakeHost, record } from "./fakeHost";
 
 // The tools keep state per process, as a host keeps them running: each test
@@ -490,4 +491,26 @@ test("a slide can't make a declarative shadow root, where a link would escape th
   );
   assert.doesNotMatch(html, /(^|[\s<"'])shadowroot/i);
   assert.match(html, /<a href="https:\/\/x\.example\/">go<\/a>/);
+});
+
+test("a slide's instructions ask for its subject, not a line about the slide", () => {
+  // OpenAI's voice models, asked only to "explain it", said "Let's start with
+  // the big picture" or "This first slide is about…" and went on.
+  const args = {
+    title: "Waves",
+    imagePrompt: "a wave",
+    mode: "presentation" as const,
+  };
+  for (const slide of [1, 3]) {
+    const text = slideShownInstructions({ ...args, slide, totalSlides: 3 });
+    assert.match(text, /Begin with the content itself, never with the slide/);
+    assert.match(text, /"This slide is about…"/);
+  }
+  const step = slideShownInstructions({
+    ...args,
+    mode: "steps",
+    slide: 1,
+    totalSlides: 3,
+  });
+  assert.match(step, /Say what to do in this step, directly/);
 });
