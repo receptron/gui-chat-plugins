@@ -3,12 +3,7 @@
 // of the records saved in artifacts/slideshows/ and artifacts/storyboards/.
 // From MulmoChat (server/plugins/sequenceTools.ts) and MulmoGlass.
 import type { ToolDefinition } from "gui-chat-protocol";
-import {
-  MAX_SLIDE_HTML,
-  SLIDE_ANIMATIONS,
-  SLIDE_HEIGHT,
-  SLIDE_WIDTH,
-} from "./slideHtml";
+import { MAX_SLIDE_HTML, SLIDE_HEIGHT, SLIDE_WIDTH } from "./slideHtml";
 
 export const PRESENT_SLIDE = "presentSlide";
 export const DEFINE_STORYBOARD = "defineStoryboard";
@@ -139,7 +134,8 @@ export interface SlideData {
 
 const SLIDE_HTML_DESCRIPTION = [
   `For an HTML slide, instead of imagePrompt: the slide's content, the inside of <body> only (no <html>, <head> or <body> tags), for a ${SLIDE_WIDTH}x${SLIDE_HEIGHT} px canvas, which it should fill (start with a <div class="w-full h-full ...">). Style it with Tailwind CSS v4 classes, which are loaded for you: a clear layout, a large title (text-6xl or so), few words in large type, a color scheme, and inline SVG or emoji for icons and diagrams. There is no network: no <img> from URLs, no links to follow.`,
-  `Animate it so it builds up as you explain it: these classes are defined, ${SLIDE_ANIMATIONS.map((name) => `animate-${name}`).join(", ")} (an SVG path drawing itself: set stroke-dasharray and --draw-length to its length), plus Tailwind's animate-pulse, animate-bounce, animate-spin and animate-ping, and transitions. Stagger the parts with a delay, [animation-delay:600ms], so they appear one after another over a few seconds. A <style> with your own @keyframes is allowed too (and Google Fonts by @import). Scripts don't run: animate with CSS only.`,
+  `Animate it so it builds up as you explain it, with MulmoCast's data-animation attributes (the same ones make it move in a movie of the slideshow): data-animation="animate" with data-opacity="0,1", data-translate-x, data-translate-y (px), data-scale, data-rotate (deg), data-width or data-height ("0,80,%"), each "from,to"; data-animation="counter" with data-from, data-to, data-decimals, data-prefix, data-suffix; data-animation="typewriter" (its text, or data-text). Give every one data-start and data-end in seconds, and optionally data-easing (linear, easeIn, easeOut, easeInOut); stagger the parts with later data-start values so they appear one after another over a few seconds (for example 0, 0.6, 1.2). Set the first frame inline too (style="opacity:0" on an element that fades in).`,
+  `CSS animations, transitions and scripts don't play: animate only with data-animation. A <style> for layout is allowed (and Google Fonts by @import).`,
 ].join(" ");
 
 export const PRESENT_SLIDE_PROMPT: string =

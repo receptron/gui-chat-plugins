@@ -5,6 +5,7 @@ import { presentSlide } from "../src/core/presentSlide";
 import { createHash } from "node:crypto";
 import {
   PAGE_SCRIPT_HASH,
+  SLIDE_CSS_ANIMATIONS_FINISHED,
   neutralizeSlideHtml,
   slideHtmlDocument,
 } from "../src/core/slideHtml";
@@ -435,13 +436,20 @@ test("a picture step after an HTML step is drawn without a reference", async () 
   assert.deepEqual(host.calls.at(-1)?.references, []);
 });
 
-test("an HTML slide's page loads Tailwind, the animations and a policy that stops it sending anything", () => {
+test("an HTML slide's page loads Tailwind, plays data-animation and has a policy that stops it sending anything", () => {
   const page = slideHtmlDocument('<div class="animate-pop">Hi</div>');
+  // MulmoCast's data-animation attributes; CSS animations shown at their
+  // end, by the rules a host adds to a movie's HTML.
+  assert.match(page, /querySelectorAll\("\[data-animation\]"\)/);
+  assert.ok(page.includes(SLIDE_CSS_ANIMATIONS_FINISHED));
+  assert.match(
+    SLIDE_CSS_ANIMATIONS_FINISHED,
+    /animation-duration: 0s !important/,
+  );
   assert.match(
     page,
     /@tailwindcss\/browser@4\.\d+\.\d+\/dist\/index\.global\.js" integrity="sha384-/,
   );
-  assert.match(page, /--animate-pop:/);
   assert.match(page, /connect-src 'none'/);
   assert.match(page, /img-src data: blob:/);
   // No script but the page's own (by its hash) and Tailwind's file: a

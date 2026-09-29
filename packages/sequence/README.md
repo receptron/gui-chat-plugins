@@ -65,13 +65,20 @@ it is drawn.
 A slide is a generated picture (`imagePrompt`) or HTML (`html`), the model's choice per slide: a
 picture for a scene or an object, HTML for words, numbers, lists, comparisons and diagrams, which
 picture models draw badly. The model writes the inside of `<body>` for a 1280x720 canvas, with
-Tailwind CSS v4 classes and these entrance animations: `animate-fade-in`, `animate-fade-up`,
-`animate-fade-down`, `animate-slide-in-left`, `animate-slide-in-right`, `animate-zoom-in`,
-`animate-pop` and `animate-draw` (an SVG path drawing itself), staggered with
-`[animation-delay:…]`. The slide's own scripts don't run: its animations are CSS.
+Tailwind CSS classes, and animates it with [MulmoCast](https://github.com/receptron/mulmocast-cli)'s
+declarative `data-animation` attributes: `animate` (`data-opacity`, `data-translate-x/y`,
+`data-scale`, `data-rotate`, `data-width`/`data-height`), `counter` and `typewriter`, each with
+`data-start` and `data-end` in seconds and an optional `data-easing`. A movie made from the slide
+(an `html_tailwind` beat with `animation: true`) moves the same way. The page plays them with its
+own player (MIT; MulmoCast is AGPL), measured against MulmoCast's: the same values at the same
+times. An animation without `data-end` runs to the end of the beat in a movie, and for
+`SLIDE_AUTO_END_SECONDS` (8) here. CSS animations and transitions don't play: each is shown at its
+end. MulmoCast would hold them at their first frame (an element faded in with `@keyframes` stays
+transparent), so a host making a movie adds `SLIDE_CSS_ANIMATIONS_FINISHED` (a `<style>`'s rules)
+to the HTML it passes on. The slide's own scripts don't run.
 
 `slideHtmlDocument(html)` (core entry) makes the page: Tailwind's browser build from jsDelivr (one
-version, checked by its hash), the animations, and a Content Security Policy that lets it send
+version, checked by its hash), the animation player, and a Content Security Policy that lets it send
 nothing out: `connect-src 'none'`; images, media and fonts only from `data:`/`blob:` URLs and
 Google Fonts; and no script but the page's own and Tailwind's, so nothing can navigate the frame to
 a URL carrying the page (a sandbox allows that, and CSP can't forbid it). The slide's `<meta>`,
