@@ -1,16 +1,43 @@
 name: CI
 
+# A pull request typechecks, tests and builds only the packages it affects
+# (scripts/affected.mjs: the packages it changed and the ones that depend on
+# them, or every package when it changes something they are all built with).
+# Lint and prettier check the whole repo: they take seconds. A push to main,
+# the weekly run and a manual run check every package.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: list
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          packages=$(node scripts/affected.mjs list $BASE)
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "Affected packages: $packages" >> "$GITHUB_STEP_SUMMARY"
+
   check:
+    needs: affected
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -18,6 +45,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: [22.x, 24.x]
+    env:
+      AFFECTED: ${{ needs.affected.outputs.packages }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -27,8 +56,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: yarn
       - run: yarn install --frozen-lockfile --network-timeout 120000
-      - run: yarn typecheck
       - run: yarn lint
-      - run: yarn test
-      - run: yarn build
       - run: yarn prettier --check .
+      # Build first: a package is typechecked and tested against the dist of
+      # the workspace packages it depends on.
+      - run: node scripts/affected.mjs run build
+      - run: node scripts/affected.mjs run typecheck
+      - run: node scripts/affected.mjs run test
