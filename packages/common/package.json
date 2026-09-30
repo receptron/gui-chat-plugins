@@ -1,0 +1,40 @@
+{
+  "name": "@gui-chat-plugin/common",
+  "version": "0.1.0",
+  "description": "Pure, browser-safe helpers shared by @gui-chat-plugin/* packages: artifact path builders for the host's files.artifacts area",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/test_*.ts"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/common#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/receptron/gui-chat-plugins.git",
+    "directory": "packages/common"
+  },
+  "keywords": [
+    "gui-chat",
+    "gui-chat-protocol"
+  ]
+}

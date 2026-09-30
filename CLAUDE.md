@@ -4,6 +4,10 @@
 plugin under `@gui-chat-plugin/`, in `packages/<name>/`. MIT. The hosts that use them are MulmoChat
 (`../../chat`) and MulmoGlass (`../../MulmoGlass`); a change here has to keep working in both.
 
+`packages/common` is the one package that is not a plugin: no tools and no Views, only pure,
+browser-safe helpers the plugins share. It depends on nothing, and a plugin lists it under
+`dependencies`.
+
 ## Commands
 
 - `yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` — every package (in dependency order);
