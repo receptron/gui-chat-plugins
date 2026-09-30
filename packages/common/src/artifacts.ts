@@ -8,11 +8,14 @@
 // regardless of host OS. `path.join` would emit `\` on Windows and corrupt
 // them; `path.posix.join` would drag in node:path and break the browser
 // bundle. So already-sanitised segments are joined with `/` directly.
+//
+// The directory's name itself is the protocol's (`ARTIFACTS_ROOT`, 2.3): it is
+// part of the host–plugin contract, not a helper, so it is imported rather
+// than spelled here.
+
+import { ARTIFACTS_ROOT } from "gui-chat-protocol";
 
 const MAX_SLUG_LEN = 120;
-
-/** The workspace directory every artifact lives under (`<workspace>/artifacts`). */
-export const ARTIFACTS_ROOT = "artifacts";
 
 /**
  * Lowercase-ASCII slug for a throwaway, timestamped artifact filename. Empty,

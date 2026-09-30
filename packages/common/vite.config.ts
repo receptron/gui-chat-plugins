@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
-// One entry: pure helpers, no Views and no styles. Nothing is external
-// because nothing is imported.
+// One entry: pure helpers, no Views and no styles. The protocol is the
+// host's, so it stays external, as in every package here.
 export default defineConfig({
   build: {
     lib: {
@@ -10,6 +10,9 @@ export default defineConfig({
       formats: ["es", "cjs"],
       fileName: (format, entry) => `${entry}.${format === "es" ? "js" : "cjs"}`,
     },
-    rollupOptions: { output: { exports: "named" } },
+    rollupOptions: {
+      external: ["gui-chat-protocol"],
+      output: { exports: "named" },
+    },
   },
 });
