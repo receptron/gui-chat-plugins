@@ -2,7 +2,8 @@
 // picture on the screen, as a slide or a panel should be seen (ui-image's
 // ImageView, which generateImage's View uses, fits a wide picture to the
 // width and scrolls), with a panel's caption and choices under it. An HTML
-// slide is fitted the same way, as a sandboxed page.
+// slide (a Markdown slide is one) and a chart slide are fitted the same way,
+// as sandboxed pages.
 import "../style.css";
 
 import {
@@ -26,6 +27,7 @@ import {
   presentSlidePluginCore,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
+  chartSlideDocument,
   slideHtmlDocument,
   type CastData,
   type SlideData,
@@ -110,13 +112,13 @@ function fittedImageView(
   );
 }
 
-/** An HTML slide: its page at 1280x720, scaled to fit the View. The iframe
- *  is sandbox="allow-scripts" without allow-same-origin: the page is
- *  model-written, so it gets an opaque origin, and its own CSP
- *  (slideHtmlDocument) stops it sending anything out. */
-const HtmlSlide = defineComponent({
-  name: "HtmlSlide",
-  props: { html: { type: String, required: true } },
+/** A slide's page (slideHtmlDocument, chartSlideDocument) at 1280x720,
+ *  scaled to fit the View. The iframe is sandbox="allow-scripts" without
+ *  allow-same-origin: the page is model-written, so it gets an opaque origin,
+ *  and its own CSP stops it sending anything out. */
+const SlidePage = defineComponent({
+  name: "SlidePage",
+  props: { page: { type: String, required: true } },
   setup(props) {
     const box = ref<HTMLElement | null>(null);
     const scale = ref(0);
@@ -146,7 +148,7 @@ const HtmlSlide = defineComponent({
         scale.value > 0
           ? [
               h("iframe", {
-                srcdoc: slideHtmlDocument(props.html),
+                srcdoc: props.page,
                 sandbox: "allow-scripts",
                 title: "slide",
                 width: SLIDE_WIDTH,
@@ -177,8 +179,13 @@ const PresentSlideView = markRaw(
     },
     setup(props) {
       return () => {
-        const html = props.selectedResult.data?.html;
-        if (!html) {
+        const data = props.selectedResult.data;
+        const page = data?.html
+          ? slideHtmlDocument(data.html)
+          : data?.chart
+            ? chartSlideDocument(data.title, data.chart)
+            : "";
+        if (!page) {
           return h(ImageSlideView, {
             selectedResult:
               props.selectedResult as unknown as ImageResult<ImageToolData>,
@@ -190,9 +197,9 @@ const PresentSlideView = markRaw(
           "div",
           { class: "h-full w-full flex flex-col bg-slate-100 p-2" },
           [
-            h(HtmlSlide, {
-              key: props.selectedResult.uuid ?? html,
-              html,
+            h(SlidePage, {
+              key: props.selectedResult.uuid ?? page,
+              page,
             }),
           ],
         );
@@ -213,7 +220,7 @@ const PresentSlidePreview = markRaw(
     setup(props) {
       return () => {
         const data = props.result.data;
-        if (!data?.html) {
+        if (!data?.html && !data?.chart) {
           return h(ImagePreview, {
             result: props.result as unknown as ImageResult<ImageToolData>,
           });

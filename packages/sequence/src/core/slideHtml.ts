@@ -57,6 +57,9 @@ export const SLIDE_AUTO_END_SECONDS = 8;
 // typewriter shows its share of the text. The first frame is set before the
 // slide appears, so an element that fades in isn't seen first.
 // window.__slideSeek(seconds) shows the slide at a time (for tests).
+//
+// Fitting it: a box with data-fit (a Markdown slide's) whose text overflows
+// it has its font size lowered until it fits, before the slide appears.
 const PAGE_SCRIPT = `
 (() => {
   const EASE = {
@@ -145,6 +148,15 @@ const PAGE_SCRIPT = `
     }
   };
   window.__slideSeek = seek;
+  const fit = () => {
+    for (const el of document.querySelectorAll("[data-fit]")) {
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (size > 12 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) {
+        size -= 1;
+        el.style.fontSize = size + "px";
+      }
+    }
+  };
   const play = () => {
     const last = Math.max(0, ...entries.map((e) => e.end ?? AUTO_END));
     const begun = performance.now();
@@ -171,6 +183,7 @@ const PAGE_SCRIPT = `
   const show = () => {
     if (shown) return;
     init();
+    fit();
     shown = true;
     document.documentElement.classList.add("ready");
     if (collected) play();
@@ -190,7 +203,7 @@ const PAGE_SCRIPT = `
 
 /** PAGE_SCRIPT's hash, which the policy allows (checked by a test). */
 export const PAGE_SCRIPT_HASH =
-  "sha256-0zsqCvkCfq5Z1iJCn46NiAtSAyIr/JDkyNs/Fae1J+Y=";
+  "sha256-bNBxv6ehYc2PHOgmTReFSYsrxiGvq6aqqg9m5RwS7Lc=";
 
 // The slide is model-written, and the model may have read a page written to
 // steer it. The View's iframe is sandbox="allow-scripts" without
@@ -213,6 +226,17 @@ const SLIDE_CSP = [
   "form-action 'none'",
   "base-uri 'none'",
 ].join("; ");
+
+const ENTITIES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+};
+
+/** Text as HTML text or an attribute's value. */
+export const escapeHtml = (text: string): string =>
+  text.replace(/[&<>"]/g, (c) => ENTITIES[c] ?? c);
 
 /** The slide's HTML, made safe to show:
  *  - the tags that act on the page from outside the body are plain text:

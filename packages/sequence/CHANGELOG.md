@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0
+
+- **Chart slides**: `presentSlide` takes `chart`, a Chart.js configuration (`{ type, data,
+options }`, as MulmoCast's chart beats take it), for numbers to compare, a trend or proportions.
+  The View draws it under the slide's title on a sandboxed page of its own
+  (`chartSlideDocument`), with the same kind of policy as an HTML slide's: Chart.js from jsDelivr,
+  checked by its hash, and the configuration as data. Chart.js's own types only
+  (`SLIDE_CHART_TYPES`); a configuration sent as JSON text is read.
+- **Markdown slides with TeX math**: `presentSlide` takes `markdown`, with math between `$…$` or
+  `$$…$$`, for equations, definitions, short lists and small tables. `execute()` makes it an HTML
+  slide (`markdownSlideHtml`), so Views and movies show it as one; the record and the result keep
+  the text too, in `markdown`. Math is MathML, drawn by the browser with nothing to load, with the
+  thin spaces around function names and the matrix column gaps Chrome's MathML leaves out. The
+  slide's type shrinks until it fits. New dependencies: marked and KaTeX, imported only when a
+  Markdown slide is made.
+- The prompt tells the model which kind a slide should be: a picture for a scene, a chart for
+  numbers, Markdown for math and text, HTML for designed layouts and diagrams.
+- An HTML slide's page shrinks a box marked `data-fit` until it fits (its script's hash changed).
+
 ## 0.4.1
 
 - **Slides are explained, not announced.** Asked only to "explain" the slide on the screen, OpenAI's

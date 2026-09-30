@@ -10,6 +10,11 @@ import {
   slideHtmlDocument,
 } from "../src/core/slideHtml";
 import { slideShownInstructions } from "../src/core/definitions";
+import { chartSlideDocument } from "../src/core/chartSlide";
+import {
+  markdownFontSize,
+  spaceFunctionNames,
+} from "../src/core/markdownSlide";
 import { fakeHost, record } from "./fakeHost";
 
 // The tools keep state per process, as a host keeps them running: each test
@@ -382,7 +387,7 @@ test("a slide with neither an imagePrompt nor html, or too much html, ends the s
     title: title("Empty"),
     html: "  ",
   });
-  assert.match(neither.message, /either an imagePrompt or html/);
+  assert.match(neither.message, /one of imagePrompt, html, markdown or chart/);
   assert.equal(neither.sequence, null);
 
   const long = await presentSlide(host.context(), {
@@ -513,4 +518,230 @@ test("a slide's instructions ask for its subject, not a line about the slide", (
     totalSlides: 3,
   });
   assert.match(step, /Say what to do in this step, directly/);
+});
+
+// --- Markdown and chart slides -------------------------------------------------
+
+const markdownSlide = (
+  slide: number,
+  totalSlides: number,
+  firstTitle: string,
+  markdown: string,
+) => ({
+  slide,
+  totalSlides,
+  title: slide === 1 ? firstTitle : `${firstTitle}: part ${slide}`,
+  markdown,
+});
+
+test("a Markdown slide is made into HTML, with its math as MathML, and saved with its text", async () => {
+  const host = fakeHost();
+  const name = title("Euler");
+  const markdown =
+    "# Euler's identity\n\nThe most beautiful equation, $e^{i\\pi} + 1 = 0$:\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\n- **one** item";
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(1, 31, name, markdown),
+  );
+
+  assert.equal(host.calls.length, 0);
+  const { slideshowId, html, prompt } = data(result);
+  assert.equal(prompt, "");
+  assert.equal(data(result).markdown, markdown);
+  const page = String(html);
+  assert.match(page, /<h1>Euler&#39;s identity<\/h1>/);
+  assert.match(page, /<strong>one<\/strong>/);
+  // Inline math, and the display equation in a block of its own.
+  assert.match(page, /<math[^>]*><semantics><mrow><msup><mi>e<\/mi>/);
+  assert.match(
+    page,
+    /<div class="math-display"><span class="katex"><math[^>]*display="block"/,
+  );
+  assert.match(page, /<mfrac>/);
+  // No KaTeX HTML, which would need its stylesheet and fonts.
+  assert.doesNotMatch(page, /katex-html/);
+  // The box the page fits to the slide.
+  assert.match(
+    page,
+    /<div class="slide-md" data-fit style="font-size: \d+px">/,
+  );
+  assert.deepEqual(record(host.artifacts, `slideshows/${slideshowId}.json`), {
+    id: slideshowId,
+    title: name,
+    mode: "presentation",
+    totalSlides: 31,
+    slides: { "1": { title: name, imagePrompt: "", html, markdown } },
+  });
+});
+
+test("money and an escaped dollar aren't math; $$…$$ in a line is a displayed equation", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(
+      1,
+      32,
+      title("Prices"),
+      "It costs $5 and $10 (or $5-$10), or \\$20 $ 30 $.\n\nIn a line: $$a^2$$",
+    ),
+  );
+  const page = String(data(result).html);
+  assert.match(
+    page,
+    /It costs \$5 and \$10 \(or \$5-\$10\), or \$20 \$ 30 \$\./,
+  );
+  assert.equal(page.match(/<math/g)?.length, 1);
+  assert.match(page, /<math[^>]*display="block"/);
+});
+
+test("TeX that KaTeX can't read is shown as written", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(1, 33, title("Broken"), "Oops: $\\frac{1}{<x$"),
+  );
+  const page = String(data(result).html);
+  assert.match(page, /<code class="math-error">\\frac\{1\}\{&lt;x<\/code>/);
+});
+
+test("a function name gets TeX's thin spaces, which Chrome's MathML doesn't add", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(1, 40, title("Log"), "$n \\log n$ and $\\sin x$"),
+  );
+  const page = String(data(result).html);
+  assert.match(
+    page,
+    /<mi>n<\/mi><mspace width="0.1667em"><\/mspace><mi>log<\/mi><mo lspace="0" rspace="0.1667em">\u2061<\/mo><mi>n<\/mi>/,
+  );
+  // Nothing before it at the start of a formula.
+  assert.match(page, /<mrow><mi>sin<\/mi><mo lspace="0"/);
+  assert.equal(spaceFunctionNames("<mi>x</mi>"), "<mi>x</mi>");
+});
+
+test("the more a Markdown slide says, the smaller it starts", () => {
+  const short = markdownFontSize("# Title\n\nOne line");
+  const long = markdownFontSize(
+    Array.from({ length: 14 }, (_, i) => `- item ${i}`).join("\n"),
+  );
+  assert.ok(short > long);
+});
+
+const barChart = {
+  type: "bar",
+  data: {
+    labels: ["2023", "2024"],
+    datasets: [{ label: "Sales", data: [3, 5], backgroundColor: "#2563eb" }],
+  },
+};
+
+test("a chart slide is shown and saved with its configuration, drawing nothing", async () => {
+  const host = fakeHost();
+  const name = title("Sales");
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 34,
+    title: name,
+    chart: barChart,
+  });
+  assert.equal(host.calls.length, 0);
+  const { slideshowId, chart, html, prompt } = data(result);
+  assert.deepEqual(chart, barChart);
+  assert.equal(html, undefined);
+  assert.equal(prompt, "");
+  assert.equal(result.instructionsRequired, true);
+  assert.deepEqual(record(host.artifacts, `slideshows/${slideshowId}.json`), {
+    id: slideshowId,
+    title: name,
+    mode: "presentation",
+    totalSlides: 34,
+    slides: { "1": { title: name, imagePrompt: "", chart: barChart } },
+  });
+});
+
+test("a chart sent as JSON text is read; one Chart.js can't draw ends the sequence", async () => {
+  const host = fakeHost();
+  const asText = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 35,
+    title: title("Text"),
+    chart: JSON.stringify(barChart),
+  });
+  assert.deepEqual(data(asText).chart, barChart);
+
+  for (const chart of [
+    { ...barChart, type: "sankey" },
+    { type: "bar" },
+    { ...barChart, options: "big" },
+    "{not json",
+  ]) {
+    const refused = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 36,
+      title: title("Bad"),
+      chart,
+    });
+    assert.match(refused.message, /must be a Chart\.js configuration/);
+    assert.equal(refused.sequence, null);
+  }
+  assert.equal(host.calls.length, 0);
+});
+
+test("a slide is one kind: html, then markdown, then chart, then a picture", async () => {
+  const host = fakeHost();
+  const all = {
+    slide: 1,
+    title: title("All"),
+    imagePrompt: "a picture",
+    html: "<div>html</div>",
+    markdown: "# markdown",
+    chart: barChart,
+  };
+  const html = data(
+    await presentSlide(host.context(), { ...all, totalSlides: 37 }),
+  );
+  assert.equal(html.html, all.html);
+  assert.equal(html.markdown, undefined);
+  assert.equal(html.chart, undefined);
+
+  const md = data(
+    await presentSlide(host.context(), { ...all, html: "", totalSlides: 38 }),
+  );
+  assert.equal(md.markdown, all.markdown);
+  assert.equal(md.chart, undefined);
+
+  const chart = data(
+    await presentSlide(host.context(), {
+      ...all,
+      html: "",
+      markdown: " ",
+      totalSlides: 39,
+    }),
+  );
+  assert.deepEqual(chart.chart, barChart);
+  assert.equal(host.calls.length, 0);
+});
+
+test("a chart page runs only its own script and Chart.js, and its data can't end its data block", () => {
+  const page = chartSlideDocument('Sales <b>"up"</b>', {
+    type: "bar",
+    data: { labels: ["</script><script>alert(1)</script>"], datasets: [] },
+  });
+  const own = page.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+  const hash = createHash("sha256").update(own).digest("base64");
+  assert.ok(page.includes(`'sha256-${hash}'`));
+  const scripts = page.match(/script-src ([^;"]*)/)?.[1] ?? "";
+  assert.doesNotMatch(scripts, /unsafe-inline|unsafe-eval/);
+  assert.equal(scripts.split(" ").length, 2);
+  assert.match(page, /connect-src 'none'/);
+  assert.match(page, /<h1>Sales &lt;b&gt;&quot;up&quot;&lt;\/b&gt;<\/h1>/);
+  const block =
+    page.match(
+      /<script type="application\/json" id="chart-config">([\s\S]*?)<\/script>/,
+    )?.[1] ?? "";
+  assert.doesNotMatch(block, /</);
+  assert.deepEqual(JSON.parse(block).data.labels, [
+    "</script><script>alert(1)</script>",
+  ]);
 });

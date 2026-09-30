@@ -1,5 +1,6 @@
-// presentSlide: one slide of a spoken slideshow, a generated picture or a
-// slide written in HTML (./slideHtml.ts). The model calls it once per slide, in order, and explains each slide
+// presentSlide: one slide of a spoken slideshow: a generated picture, a
+// slide written in HTML (./slideHtml.ts) or in Markdown (./markdownSlide.ts,
+// made into HTML here), or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
 // when it appears. With the slide number and the total as arguments, the
 // result says where the slideshow is (ToolResult.sequence), and the host can
 // ask the model to go on (gui-chat-protocol's createSequenceKeeper).
@@ -34,6 +35,8 @@ import {
   userSpokeSince,
   type SequenceContext,
 } from "./host";
+import type { SlideChart } from "./chartSlide";
+import { markdownSlideHtml } from "./markdownSlide";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
 
@@ -68,9 +71,18 @@ export function slideSequenceStep({
 // drawn again, so that slideshow's record has it.
 const slideKey = (
   slideshowId: string,
-  { slide, totalSlides, title, imagePrompt, html }: SlideArgs,
+  { slide, totalSlides, title, imagePrompt, html, markdown, chart }: SlideArgs,
 ) =>
-  JSON.stringify([slideshowId, slide, totalSlides, title, imagePrompt, html]);
+  JSON.stringify([
+    slideshowId,
+    slide,
+    totalSlides,
+    title,
+    imagePrompt,
+    html,
+    markdown,
+    chart,
+  ]);
 
 // A slideshow as shown. Slides carry no ID, so a slideshow is known by its
 // mode, its length and its first slide's title: slide 1 with another title,
@@ -176,16 +188,28 @@ function slidePrompt(slide: SlideArgs, hasReference: boolean): string {
     .join(" ");
 }
 
-/** The slide's picture, drawn by the host; an HTML slide is shown as it is. */
+interface SlideContent {
+  imageData?: string;
+  imagePath?: string;
+  html?: string;
+  markdown?: string;
+  chart?: SlideChart;
+  prompt: string;
+}
+
+/** The slide's picture, drawn by the host; an HTML slide or a chart is shown
+ *  as it is, a Markdown slide as the HTML made of it. */
 async function slideContent(
   context: SequenceContext,
   show: ShownSlideshow,
   slide: SlideArgs,
-): Promise<
-  | { imageData?: string; imagePath?: string; html?: string; prompt: string }
-  | { failed: ToolResult }
-> {
+): Promise<SlideContent | { failed: ToolResult }> {
   if (slide.html) return { html: slide.html, prompt: "" };
+  if (slide.chart) return { chart: slide.chart, prompt: "" };
+  if (slide.markdown) {
+    const html = await markdownSlideHtml(slide.markdown);
+    return { html, markdown: slide.markdown, prompt: "" };
+  }
   const previous = show.slides.get(slide.slide - 1);
   const previousPath =
     slide.mode === "steps" ? imageOf(previous).imagePath : undefined;
@@ -208,7 +232,7 @@ async function makeSlide(
 ): Promise<ToolResult> {
   const content = await slideContent(context, show, slide);
   if ("failed" in content) return content.failed;
-  const { imageData, imagePath, html, prompt } = content;
+  const { imageData, imagePath, html, markdown, chart, prompt } = content;
 
   const slideshowId = show.id;
   const recorded = await updateRecord<Slideshow>(
@@ -229,6 +253,8 @@ async function makeSlide(
         imagePrompt: slide.imagePrompt,
         ...(imagePath && { imagePath }),
         ...(html && { html }),
+        ...(markdown && { markdown }),
+        ...(chart && { chart }),
       };
       return slideshow;
     },
@@ -238,6 +264,8 @@ async function makeSlide(
     ...(imageData && { imageData }),
     ...(imagePath && { imagePath }),
     ...(html && { html }),
+    ...(markdown && { markdown }),
+    ...(chart && { chart }),
     prompt,
     slideshowId,
     slide: slide.slide,

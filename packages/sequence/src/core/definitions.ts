@@ -3,6 +3,7 @@
 // of the records saved in artifacts/slideshows/ and artifacts/storyboards/.
 // From MulmoChat (server/plugins/sequenceTools.ts) and MulmoGlass.
 import type { ToolDefinition } from "gui-chat-protocol";
+import { SLIDE_CHART_TYPES, type SlideChart } from "./chartSlide";
 import { MAX_SLIDE_HTML, SLIDE_HEIGHT, SLIDE_WIDTH } from "./slideHtml";
 
 export const PRESENT_SLIDE = "presentSlide";
@@ -36,41 +37,79 @@ export interface SlideArgs {
   slide: number;
   totalSlides: number;
   title: string;
-  /** The picture's prompt; "" for an HTML slide. */
+  /** The picture's prompt; "" for a slide that isn't a picture. */
   imagePrompt: string;
-  /** An HTML slide's body; absent for a picture. */
+  /** An HTML slide's body. */
   html?: string;
+  /** A Markdown slide's text, with TeX math. */
+  markdown?: string;
+  /** A chart slide's Chart.js configuration. */
+  chart?: SlideChart;
   mode: SlideMode;
 }
 
 export const SLIDE_ARGS_ERROR =
-  "presentSlide needs slide and totalSlides (whole numbers, slide from 1 to totalSlides), and either an imagePrompt or html";
+  "presentSlide needs slide and totalSlides (whole numbers, slide from 1 to totalSlides), and one of imagePrompt, html, markdown or chart";
 
-export const SLIDE_HTML_TOO_LONG = `presentSlide's html is too long: keep a slide under ${MAX_SLIDE_HTML} characters`;
+export const SLIDE_HTML_TOO_LONG = `presentSlide's slide is too long: keep its html, markdown or chart under ${MAX_SLIDE_HTML} characters`;
+
+export const SLIDE_CHART_INVALID = `presentSlide's chart must be a Chart.js configuration: an object with type (${SLIDE_CHART_TYPES.join(", ")}), data ({ labels, datasets }) and optionally options`;
+
+/** A chart argument as a Chart.js configuration, or null. Some models send
+ *  an object argument as its JSON. */
+function parseChart(value: unknown): SlideChart | null {
+  let chart = value;
+  if (typeof chart === "string") {
+    try {
+      chart = JSON.parse(chart);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(chart) || !isRecord(chart.data)) return null;
+  const type = chart.type;
+  if (!SLIDE_CHART_TYPES.some((known) => known === type)) return null;
+  if (chart.options !== undefined && !isRecord(chart.options)) return null;
+  return chart as SlideChart;
+}
 
 /** The slide arguments, or what is wrong with them (said to the model). A
- *  slide with html is an HTML slide, whatever imagePrompt says. */
+ *  slide is one kind: html first, then markdown, then chart, then a
+ *  picture, whatever else was sent with it. */
 export function parseSlideArgs(
   args: Record<string, unknown>,
 ): SlideArgs | string {
   const { slide, totalSlides, title, imagePrompt } = args;
   const html = text(args.html);
+  const markdown = html ? "" : text(args.markdown);
+  const hasChart =
+    !html && !markdown && args.chart !== undefined && args.chart !== null;
   if (
     !isWholeNumber(slide) ||
     !isWholeNumber(totalSlides) ||
     slide < 1 ||
     totalSlides < slide ||
-    (!html && !text(imagePrompt))
+    (!html && !markdown && !hasChart && !text(imagePrompt))
   ) {
     return SLIDE_ARGS_ERROR;
   }
-  if (html.length > MAX_SLIDE_HTML) return SLIDE_HTML_TOO_LONG;
+  const chart = hasChart ? parseChart(args.chart) : null;
+  if (hasChart && !chart) return SLIDE_CHART_INVALID;
+  const size = Math.max(
+    html.length,
+    markdown.length,
+    chart ? JSON.stringify(chart).length : 0,
+  );
+  if (size > MAX_SLIDE_HTML) return SLIDE_HTML_TOO_LONG;
+  const picture = !html && !markdown && !chart;
   return {
     slide,
     totalSlides,
     title: typeof title === "string" ? title : "",
-    imagePrompt: html ? "" : String(imagePrompt),
+    imagePrompt: picture ? String(imagePrompt) : "",
     ...(html && { html }),
+    ...(markdown && { markdown }),
+    ...(chart && { chart }),
     mode: args.mode === "steps" ? "steps" : "presentation",
   };
 }
@@ -117,21 +156,29 @@ export interface Slideshow {
     string,
     {
       title: string;
-      /** "" for an HTML slide. */
+      /** "" for a slide that isn't a picture. */
       imagePrompt: string;
       imagePath?: string;
-      /** An HTML slide's body (slideHtmlDocument makes it a page). */
+      /** An HTML slide's body (slideHtmlDocument makes it a page); for a
+       *  Markdown slide, the HTML made of it. */
       html?: string;
+      /** A Markdown slide's text, as the model wrote it. */
+      markdown?: string;
+      /** A chart slide's Chart.js configuration (chartSlideDocument). */
+      chart?: SlideChart;
     }
   >;
 }
 
-/** A shown slide's result data: a picture, or an HTML slide's body. */
+/** A shown slide's result data: a picture, an HTML slide's body (a
+ *  Markdown slide's included, with its markdown), or a chart. */
 export interface SlideData {
   imageData?: string;
   imagePath?: string;
   html?: string;
-  /** The picture's prompt; "" for an HTML slide. */
+  markdown?: string;
+  chart?: SlideChart;
+  /** The picture's prompt; "" for a slide that isn't a picture. */
   prompt: string;
   slideshowId: string;
   slide: number;
@@ -146,15 +193,20 @@ const SLIDE_HTML_DESCRIPTION = [
   `CSS animations, transitions and scripts don't play: animate only with data-animation. A <style> for layout is allowed (and Google Fonts by @import).`,
 ].join(" ");
 
+const SLIDE_MARKDOWN_DESCRIPTION =
+  "For a Markdown slide, instead of imagePrompt: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$.";
+
+const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt: a Chart.js configuration, { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
+
 export const PRESENT_SLIDE_PROMPT: string =
-  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt) or a designed slide in HTML (html): use a picture for a scene, an object or a place, and HTML for words, numbers, lists, comparisons, timelines and diagrams, which a picture model draws badly; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
+  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
 
 export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
   type: "function",
   name: PRESENT_SLIDE,
   prompt: PRESENT_SLIDE_PROMPT,
   description:
-    'Show one slide of a slideshow, full screen: a picture generated from imagePrompt, or a slide written in HTML (html). Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
+    'Show one slide of a slideshow, full screen: a picture generated from imagePrompt, a chart (chart), a slide written in Markdown with TeX math (markdown), or a slide written in HTML (html). Give one of the four. Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
   parameters: {
     type: "object",
     properties: {
@@ -171,11 +223,19 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
       imagePrompt: {
         type: "string",
         description:
-          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. For a step, show the action: hands, tools and the object. Leave it out for an HTML slide.",
+          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. For a step, show the action: hands, tools and the object. Leave it out for a chart, Markdown or HTML slide.",
       },
       html: {
         type: "string",
         description: SLIDE_HTML_DESCRIPTION,
+      },
+      markdown: {
+        type: "string",
+        description: SLIDE_MARKDOWN_DESCRIPTION,
+      },
+      chart: {
+        type: "object",
+        description: SLIDE_CHART_DESCRIPTION,
       },
       mode: {
         type: "string",

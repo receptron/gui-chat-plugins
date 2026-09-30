@@ -50,5 +50,11 @@ export {
   SLIDE_WIDTH,
   slideHtmlDocument,
 } from "./slideHtml";
+export {
+  SLIDE_CHART_TYPES,
+  chartSlideDocument,
+  type SlideChart,
+} from "./chartSlide";
+export { markdownSlideHtml } from "./markdownSlide";
 export { SLIDESHOWS_DIR, STORYBOARDS_DIR, loadRecord } from "./records";
 export type { SequenceContext } from "./host";
