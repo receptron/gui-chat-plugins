@@ -87,8 +87,8 @@ says, and the page (the View's; a movie keeps the first size) shrinks it until i
 
 `chart` is a [Chart.js](https://www.chartjs.org) configuration, `{ type, data, options }`, as
 MulmoCast's `chart` beats take it (their `chartData`), of one of Chart.js's own types
-(`SLIDE_CHART_TYPES`: bar, line, pie, doughnut, radar, polarArea, scatter, bubble). A configuration
-sent as JSON text is read; one of another type, or without `data`, is refused, and the model is told
+(`SLIDE_CHART_TYPES`: bar, line, pie, doughnut, radar, polarArea, scatter, bubble). The tool advertises it as JSON text (an object without properties, Gemini Live
+used for 2 charts in 4 asked for; JSON text for 3 in 3), and an object is read too; one of another type, or without `data`, is refused, and the model is told
 why. The record and the result keep it in `chart`. `chartSlideDocument(title, chart)` (core entry)
 makes the page: the slide's title over the chart, which Chart.js (from jsDelivr, one version,
 checked by its hash) draws growing into place. The configuration is in a JSON data block, so it

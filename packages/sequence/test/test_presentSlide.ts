@@ -9,7 +9,10 @@ import {
   neutralizeSlideHtml,
   slideHtmlDocument,
 } from "../src/core/slideHtml";
-import { slideShownInstructions } from "../src/core/definitions";
+import {
+  PRESENT_SLIDE_DEFINITION,
+  slideShownInstructions,
+} from "../src/core/definitions";
 import { chartSlideDocument } from "../src/core/chartSlide";
 import {
   markdownFontSize,
@@ -744,4 +747,75 @@ test("a chart page runs only its own script and Chart.js, and its data can't end
   assert.deepEqual(JSON.parse(block).data.labels, [
     "</script><script>alert(1)</script>",
   ]);
+});
+
+test("$$…$$ within a paragraph, or in code, doesn't break the paragraph", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(
+      1,
+      41,
+      title("Inline"),
+      "A displayed formula $$x$$ in a line.\n\nCode: `$$x$$` here.\n\n  $$y$$\n\nafter",
+    ),
+  );
+  const page = String(data(result).html);
+  assert.match(
+    page,
+    /<p>A displayed formula <span class="katex"><math[^>]*display="block"/,
+  );
+  assert.match(page, /<\/math><\/span> in a line\.<\/p>/);
+  assert.match(page, /<code>\$\$x\$\$<\/code>/);
+  // An indented one on a line of its own is still a displayed equation.
+  assert.match(page, /<div class="math-display">/);
+});
+
+test("a chart slide counts as shown: a repeat is dropped, and a guide's next step waits", async () => {
+  const host = fakeHost();
+  const name = title("Chart steps");
+  const step = (slide: number) => ({
+    slide,
+    totalSlides: 42,
+    title: slide === 1 ? name : `${name}: part ${slide}`,
+    chart: { ...barChart, data: { ...barChart.data, labels: [String(slide)] } },
+    mode: "steps",
+  });
+  const step1 = await presentSlide(host.context({ userSpokeAt: 0 }), step(1));
+  assert.ok(data(step1).chart);
+
+  const onScreen = await presentSlide(
+    host.context({ currentResult: step1, userSpokeAt: 0 }),
+    step(1),
+  );
+  assert.equal(onScreen.cancelled, true);
+
+  const held = await presentSlide(
+    host.context({ currentResult: step1, userSpokeAt: 0 }),
+    step(2),
+  );
+  assert.equal(held.cancelled, true);
+  assert.match(held.message, /hasn't said they're ready/);
+
+  const presentation = {
+    slide: 1,
+    totalSlides: 43,
+    title: title("Chart twice"),
+    chart: barChart,
+  };
+  const first = await presentSlide(host.context(), presentation);
+  const again = await presentSlide(
+    host.context({ currentResult: first }),
+    presentation,
+  );
+  assert.equal(again.cancelled, true);
+});
+
+test("the chart argument is advertised as JSON text", () => {
+  const properties = (
+    PRESENT_SLIDE_DEFINITION.parameters as {
+      properties: Record<string, { type: string }>;
+    }
+  ).properties;
+  assert.equal(properties.chart?.type, "string");
 });

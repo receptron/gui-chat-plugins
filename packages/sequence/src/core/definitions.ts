@@ -196,7 +196,7 @@ const SLIDE_HTML_DESCRIPTION = [
 const SLIDE_MARKDOWN_DESCRIPTION =
   "For a Markdown slide, instead of imagePrompt: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$.";
 
-const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt: a Chart.js configuration, { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
+const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt: a Chart.js configuration as JSON text, {"type": ..., "data": ...}: { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
 
 export const PRESENT_SLIDE_PROMPT: string =
   'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
@@ -233,8 +233,12 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
         type: "string",
         description: SLIDE_MARKDOWN_DESCRIPTION,
       },
+      // JSON text, not an object: an object without properties, which a
+      // Chart.js configuration is here, Gemini Live used for 2 charts in 4
+      // asked for (drawing the others in HTML), JSON text for 3 in 3. An
+      // object is still read (parseChart).
       chart: {
-        type: "object",
+        type: "string",
         description: SLIDE_CHART_DESCRIPTION,
       },
       mode: {

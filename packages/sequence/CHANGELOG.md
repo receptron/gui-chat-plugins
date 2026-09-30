@@ -7,7 +7,9 @@ options }`, as MulmoCast's chart beats take it), for numbers to compare, a trend
   The View draws it under the slide's title on a sandboxed page of its own
   (`chartSlideDocument`), with the same kind of policy as an HTML slide's: Chart.js from jsDelivr,
   checked by its hash, and the configuration as data. Chart.js's own types only
-  (`SLIDE_CHART_TYPES`); a configuration sent as JSON text is read.
+  (`SLIDE_CHART_TYPES`). The parameter is JSON text: as an object without properties, Gemini
+  Live used it for 2 charts in 4 asked for, drawing the others in HTML; as JSON text, 3 in 3. An
+  object is read too.
 - **Markdown slides with TeX math**: `presentSlide` takes `markdown`, with math between `$…$` or
   `$$…$$`, for equations, definitions, short lists and small tables. `execute()` makes it an HTML
   slide (`markdownSlideHtml`), so Views and movies show it as one; the record and the result keep

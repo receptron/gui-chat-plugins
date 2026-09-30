@@ -61,7 +61,8 @@ export function markdownFontSize(markdown: string): number {
 }
 
 // $$…$$ (and \[…\]) on lines of their own, a display equation.
-const BLOCK_MATH = /^(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\])[ \t]*(?:\n|$)/;
+const BLOCK_MATH =
+  /^[ \t]*(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\])[ \t]*(?:\n|$)/;
 // $…$ (and \(…\)) within a line. A dollar starts math only before a
 // non-space and ends it only after one, not before a digit: "$5 and $10"
 // stays money. $$…$$ within a line is a display equation too.
@@ -75,7 +76,13 @@ function mathExtensions(render: RenderMath): TokenizerAndRendererExtension[] {
     {
       name: "blockMath",
       level: "block",
-      start: (src) => src.match(/(?<!\\)\$\$|\\\[/)?.index,
+      // Only where a line begins with one: a hint anywhere else makes marked
+      // end the paragraph there, even when the tokenizer then declines, and
+      // "a formula $$x$$ in a line" or `$$x$$` in code comes apart.
+      start: (src) => {
+        const line = /(^|\n)(?=[ \t]*(?:\$\$|\\\[))/.exec(src);
+        return line ? line.index + (line[1] ?? "").length : undefined;
+      },
       tokenizer(src) {
         const match = BLOCK_MATH.exec(src);
         if (!match) return undefined;

@@ -45,13 +45,20 @@ export function htmlOf(result: ToolResult | null | undefined): string {
   return typeof data.html === "string" ? data.html : "";
 }
 
-/** Whether a result shows something: a picture or an HTML slide. */
+/** A chart slide's configuration as text, when the result is one. */
+export function chartOf(result: ToolResult | null | undefined): string {
+  const data = isRecord(result?.data) ? result.data : {};
+  return isRecord(data.chart) ? JSON.stringify(data.chart) : "";
+}
+
+/** Whether a result shows something: a picture, an HTML slide (a Markdown
+ *  slide is one) or a chart. */
 export const shownContent = (result: ToolResult): boolean =>
-  !!imageOf(result).imageData || !!htmlOf(result);
+  !!imageOf(result).imageData || !!htmlOf(result) || !!chartOf(result);
 
 /** Whether two results show the same picture: by its saved path when both
  *  have one (a host may send the current result without its image data),
- *  else by the picture itself, or the same HTML slide. A host that sends the
+ *  else by the picture itself, or the same HTML slide or chart. A host that sends the
  *  current result by its path only can't tell an HTML slide is on the
  *  screen: one asked for again is shown again. */
 export function samePicture(
@@ -65,7 +72,9 @@ export function samePicture(
   }
   if (first.imageData) return first.imageData === second.imageData;
   const html = htmlOf(a);
-  return !!html && html === htmlOf(b);
+  if (html) return html === htmlOf(b);
+  const chart = chartOf(a);
+  return !!chart && chart === chartOf(b);
 }
 
 /** When the user spoke after `time` (ms since the epoch). A host that doesn't
