@@ -38,7 +38,31 @@ export const SLIDE_ANIMATION_KINDS = [
  *  doesn't know. */
 export const SLIDE_AUTO_END_SECONDS = 8;
 
-// The page's own script, in two parts.
+// Fitting a slide: a box with data-fit (a Markdown slide's) whose text
+// overflows it has its font size lowered, a pixel at a time, until it fits.
+// One function, in the View's page and in SLIDE_FIT_SCRIPT for movies.
+const FIT = `() => {
+    for (const el of document.querySelectorAll("[data-fit]")) {
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (size > 12 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) {
+        size -= 1;
+        el.style.fontSize = size + "px";
+      }
+    }
+  }`;
+
+/** A script that fits a slide's data-fit boxes, as the View's page does, for
+ *  a page that shows the slide's HTML without it: a host making a movie of a
+ *  Markdown slide runs it in the movie's page (MulmoCast's html_tailwind
+ *  beat takes it as its script), or dense text is cut off there. It fits at
+ *  once and again when the page has loaded. */
+export const SLIDE_FIT_SCRIPT = `(() => {
+  const fit = ${FIT};
+  fit();
+  addEventListener("load", fit);
+})();`;
+
+// The page's own script, in three parts.
 //
 // Showing the slide: the body is hidden until Tailwind has compiled the
 // slide's classes, so it doesn't flash unstyled, and its animations start
@@ -58,8 +82,7 @@ export const SLIDE_AUTO_END_SECONDS = 8;
 // slide appears, so an element that fades in isn't seen first.
 // window.__slideSeek(seconds) shows the slide at a time (for tests).
 //
-// Fitting it: a box with data-fit (a Markdown slide's) whose text overflows
-// it has its font size lowered until it fits, before the slide appears.
+// Fitting it: FIT (above), before the slide appears.
 const PAGE_SCRIPT = `
 (() => {
   const EASE = {
@@ -148,15 +171,7 @@ const PAGE_SCRIPT = `
     }
   };
   window.__slideSeek = seek;
-  const fit = () => {
-    for (const el of document.querySelectorAll("[data-fit]")) {
-      let size = parseFloat(getComputedStyle(el).fontSize);
-      while (size > 12 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) {
-        size -= 1;
-        el.style.fontSize = size + "px";
-      }
-    }
-  };
+  const fit = ${FIT};
   const play = () => {
     const last = Math.max(0, ...entries.map((e) => e.end ?? AUTO_END));
     const begun = performance.now();

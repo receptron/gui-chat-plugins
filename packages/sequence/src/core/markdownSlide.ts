@@ -16,9 +16,11 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH, escapeHtml } from "./slideHtml";
 const BOX = "slide-md";
 
 // Em-based, so the box's font size scales it all, and the page shrinks that
-// until the slide fits (data-fit in slideHtml's page script).
+// until the slide fits (data-fit in slideHtml's page script). The box keeps
+// its size in a flex container (a movie's page makes the body one), or it
+// shrinks with the page and its text is fitted into the smaller box.
 const STYLE = `
-.${BOX} { box-sizing: border-box; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; padding: 56px 80px; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 0.5em; background: #ffffff; color: #0f172a; font-family: ui-sans-serif, system-ui, sans-serif; line-height: 1.35; }
+.${BOX} { box-sizing: border-box; flex-shrink: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; padding: 56px 80px; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: 0.5em; background: #ffffff; color: #0f172a; font-family: ui-sans-serif, system-ui, sans-serif; line-height: 1.35; }
 .${BOX} > * { margin: 0; }
 .${BOX} h1 { font-size: 1.9em; font-weight: 800; color: #1e3a8a; line-height: 1.15; }
 .${BOX} h2 { font-size: 1.5em; font-weight: 700; color: #1e40af; line-height: 1.2; }

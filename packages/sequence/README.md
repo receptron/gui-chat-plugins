@@ -81,7 +81,9 @@ model wrote it in `markdown`. Math is MathML (KaTeX's `mathml` output), which th
 no stylesheet or font to load: it works offline and in a movie as on the screen. Function names
 (`\log`, `\sin`) get TeX's thin spaces, and matrix cells padding, which Chrome's MathML doesn't give
 them. TeX that KaTeX can't read is shown as written, in red. The slide's type is sized by how much it
-says, and the page (the View's; a movie keeps the first size) shrinks it until it fits.
+says, and the page shrinks it until it fits. A page that shows the slide's HTML without the View's
+page (a movie's) fits it with `SLIDE_FIT_SCRIPT`: MulmoCast's `html_tailwind` beat takes it as its
+`script`.
 
 ### Chart slides
 
