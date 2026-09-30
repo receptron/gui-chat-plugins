@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.2
+
+- **The model explains the whole slide before the next one.** Grok Voice said one or two
+  sentences a slide and went on: asked for "at least two sentences", it said two, whatever the
+  slide held, and asked to call the next slide "in this same reply", it often said only the
+  slide's first sentence, word for word, before the call. The slide was replaced half explained.
+  The instructions now ask it to cover every section, point and number, say that the next slide
+  replaces this one as soon as it stops talking, and that the call is the last thing in the reply.
+  Checked on Grok Voice with a Tesla vs Waymo robotaxi slideshow: one-sentence slides went from
+  10 in 21 to none in 20. The prompt also asks for slides that hold only what the model will say.
+
 ## 0.5.1
 
 - **Markdown slides fit in movies too.** A dense Markdown slide shrank to fit in the View, whose page
