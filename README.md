@@ -6,6 +6,7 @@ compliant host (MulmoChat, MulmoGlass, …), one npm package per plugin under `@
 | Package                                          | Tools                                                                                                            |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | [`@gui-chat-plugin/sequence`](packages/sequence) | `presentSlide`, `defineStoryboard`, `presentPanel`: slideshows, step-by-step guides and stories told in pictures |
+| [`@gui-chat-plugin/common`](packages/common)     | No tools: pure helpers the plugins share (artifact path builders)                                                |
 
 Development: `yarn`, then `yarn typecheck`, `yarn lint`, `yarn test`, `yarn build`. Releases:
 `yarn release <package>` (see [CLAUDE.md](CLAUDE.md)). MIT.
