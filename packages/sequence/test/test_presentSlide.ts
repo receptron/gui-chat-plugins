@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import {
   PAGE_SCRIPT_HASH,
   SLIDE_CSS_ANIMATIONS_FINISHED,
+  SLIDE_FIT_SCRIPT,
   neutralizeSlideHtml,
   slideHtmlDocument,
 } from "../src/core/slideHtml";
@@ -818,4 +819,22 @@ test("the chart argument is advertised as JSON text", () => {
     }
   ).properties;
   assert.equal(properties.chart?.type, "string");
+});
+
+test("a movie's page fits a Markdown slide as the View's page does", async () => {
+  // The same fitting function in both.
+  const fit =
+    SLIDE_FIT_SCRIPT.match(/const fit = (\(\) => \{[\s\S]*?\n {2}\});/)?.[1] ??
+    "";
+  assert.ok(fit.includes('querySelectorAll("[data-fit]")'));
+  assert.ok(slideHtmlDocument("").includes(`const fit = ${fit};`));
+  assert.match(SLIDE_FIT_SCRIPT, /addEventListener\("load", fit\)/);
+  // The box keeps its size where the body is a flex column (MulmoCast's
+  // page), so its text is fitted to the slide, not to a shrunken box.
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(1, 44, title("Flex"), "# Hi"),
+  );
+  assert.match(String(data(result).html), /\.slide-md \{[^}]*flex-shrink: 0;/);
 });

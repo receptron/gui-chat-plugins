@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+- **Markdown slides fit in movies too.** A dense Markdown slide shrank to fit in the View, whose page
+  runs the fitting, but a movie made from it (MulmoChat's makeMovie: an `html_tailwind` beat) cut
+  it off at the top and bottom. `SLIDE_FIT_SCRIPT` is the same fitting, for the host to give the
+  movie's page (MulmoCast's html_tailwind beat takes it as its `script`). The Markdown slide's box
+  no longer shrinks as a flex item: MulmoCast's page makes the body a flex column, where it did,
+  and its text was fitted into the shrunken box, much too small. Checked in a MulmoChat movie: a
+  14-item slide with a formula on every line fits, its title and last line in view.
+
 ## 0.5.0
 
 - **Chart slides**: `presentSlide` takes `chart`, a Chart.js configuration (`{ type, data,
