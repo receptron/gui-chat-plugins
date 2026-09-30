@@ -3,8 +3,8 @@
 // filename-slug + partition + workspace-escape behaviour in one place.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { ARTIFACTS_ROOT } from "gui-chat-protocol";
 import {
-  ARTIFACTS_ROOT,
   buildArtifactRelPath,
   hasUnsafePathSegment,
   slugifyArtifact,
@@ -132,12 +132,15 @@ describe("buildArtifactRelPath", () => {
 });
 
 describe("toWorkspaceArtifactPath", () => {
-  it("prefixes a FileOps-relative path with the artifacts root", () => {
+  it("prefixes a FileOps-relative path with the protocol's artifacts root", () => {
+    assert.equal(
+      toWorkspaceArtifactPath("charts/2026/06/x.chart.json"),
+      `${ARTIFACTS_ROOT}/charts/2026/06/x.chart.json`,
+    );
     assert.equal(
       toWorkspaceArtifactPath("charts/2026/06/x.chart.json"),
       "artifacts/charts/2026/06/x.chart.json",
     );
-    assert.equal(ARTIFACTS_ROOT, "artifacts");
   });
 });
 

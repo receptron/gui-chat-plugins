@@ -26,6 +26,12 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/test_*.ts"
   },
+  "peerDependencies": {
+    "gui-chat-protocol": "^2.3.0"
+  },
+  "devDependencies": {
+    "gui-chat-protocol": "^2.3.0"
+  },
   "license": "MIT",
   "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/common#readme",
   "repository": {
