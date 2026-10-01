@@ -758,25 +758,14 @@ export class Evaluator {
           case "%":
             return toNumber(left) % toNumber(right);
 
+          // Recursive, with no numeric coercion, as `in` and `switch` compare:
+          // converting each element to a number compared only the first
+          // component of nested tuples and threw on strings (#19).
           case "=":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              if (left.length !== right.length) return false;
-              for (let i = 0; i < left.length; i++) {
-                if (toNumber(left[i]) !== toNumber(right[i])) return false;
-              }
-              return true;
-            }
-            return left === right;
+            return valuesEqual(left, right);
 
           case "<>":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              if (left.length !== right.length) return true;
-              for (let i = 0; i < left.length; i++) {
-                if (toNumber(left[i]) !== toNumber(right[i])) return true;
-              }
-              return false;
-            }
-            return left !== right;
+            return !valuesEqual(left, right);
 
           case "<":
             return toNumber(left) < toNumber(right);

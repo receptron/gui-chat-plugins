@@ -214,6 +214,35 @@ describe("geometry builders", () => {
       /longer than/,
     );
   });
+  it("compares tuples element by element, recursively, as `in` and `switch` do (#19)", () => {
+    // A cube is built exactly when the condition holds.
+    const holds = (condition: string): boolean => {
+      const group = astToThreeJS(
+        parseShapeScript(`if ${condition} {\n  cube\n}`),
+      );
+      try {
+        let meshes = 0;
+        group.traverse((object) => {
+          if ((object as THREE.Mesh).isMesh) meshes++;
+        });
+        return meshes > 0;
+      } finally {
+        disposeObject3D(group);
+      }
+    };
+    assert.equal(holds("((1 2) (3 4)) = ((1 9) (3 8))"), false);
+    assert.equal(holds("((1 2) (3 4)) = ((1 2) (3 4))"), true);
+    assert.equal(holds('("a" "b") = ("a" "b")'), true);
+    assert.equal(holds('("a" "b") = ("a" "c")'), false);
+    assert.equal(holds('(1 "a") = (1 "a")'), true);
+    assert.equal(holds("(1 2) = (1 3)"), false);
+    assert.equal(holds("(1 2) = (1 2 3)"), false);
+    assert.equal(holds("((1 2) (3 4)) <> ((1 9) (3 8))"), true);
+    assert.equal(holds('("a" "b") <> ("a" "b")'), false);
+    assert.equal(holds("(1 2) <> (1 2)"), false);
+    assert.equal(holds("2 = 2"), true);
+    assert.equal(holds("2 <> 3"), true);
+  });
   it("caps nested `for` expressions as one nest, not loop by loop (#14)", () => {
     const build = (script: string, maxLoopIterations?: number) =>
       disposeObject3D(
