@@ -46,7 +46,7 @@ export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
       }
       const [first, ...rest] = solids;
       if (!first) return null;
-      if (operation === "stencil") return stencil(first, rest, slotOf, keep);
+      if (operation === "stencil") return stencil(first, rest, slotOf);
       const result = combine(
         wasm,
         operation,
@@ -175,22 +175,36 @@ function stencil(
   first: Solid,
   cutters: Solid[],
   slotOf: Map<number, number>,
-  keep: (manifold: Manifold) => Manifold,
 ): THREE.BufferGeometry | null {
   let pieces: Piece[] = [{ manifold: first.manifold }];
-  for (const cutter of cutters) {
-    pieces = pieces.flatMap((piece) => {
-      const [inside, outside] = piece.manifold.split(cutter.manifold);
-      return [
-        { manifold: keep(inside), paint: cutter.firstSlot },
-        {
-          manifold: keep(outside),
-          ...(piece.paint === undefined ? {} : { paint: piece.paint }),
-        },
-      ];
-    });
+  // Pieces this function made, freed when replaced or at the end; the first
+  // operand is the caller's.
+  const own = (manifold: Manifold) => manifold !== first.manifold;
+  try {
+    for (const cutter of cutters) {
+      pieces = pieces.flatMap((piece) => {
+        const [inside, outside] = piece.manifold.split(cutter.manifold);
+        if (own(piece.manifold)) piece.manifold.delete();
+        // An empty half is dropped at once: kept, every later cutter would
+        // split it again, and n cutters that miss the shape made 2^n pieces
+        // (codex on #24).
+        const halves: Piece[] = [];
+        if (inside.isEmpty()) inside.delete();
+        else halves.push({ manifold: inside, paint: cutter.firstSlot });
+        if (outside.isEmpty()) outside.delete();
+        else
+          halves.push({
+            manifold: outside,
+            ...(piece.paint === undefined ? {} : { paint: piece.paint }),
+          });
+        return halves;
+      });
+    }
+    return geometryOf(pieces, slotOf, new Set(first.ids));
+  } finally {
+    for (const piece of pieces)
+      if (own(piece.manifold)) piece.manifold.delete();
   }
-  return geometryOf(pieces, slotOf, new Set(first.ids));
 }
 
 interface Piece {

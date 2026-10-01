@@ -141,6 +141,39 @@ describe("csgEngine manifold", () => {
     });
   }
 
+  it("paints a stencil with several overlapping cutters as three-bvh-csg does", () => {
+    // Where cutters overlap, the later one's colour wins in both engines.
+    const script =
+      "detail 32\nstencil {\n sphere {\n  color white\n }\n cube {\n  color red\n  size 0.6 2 2\n  position -0.2 0 0\n }\n cube {\n  color blue\n  size 0.6 2 2\n  position 0.2 0 0\n }\n cube {\n  color green\n  size 2 0.3 2\n }\n}";
+    const bvh = surfaces(script, "three-bvh-csg");
+    const manifold = surfaces(script, "manifold");
+    assert.deepEqual(
+      [...manifold.area.keys()].sort(),
+      [...bvh.area.keys()].sort(),
+    );
+    for (const [colour, expected] of bvh.area) {
+      const actual = manifold.area.get(colour) ?? 0;
+      assert.ok(
+        Math.abs(actual - expected) <= expected * 1e-3,
+        `${colour}: ${actual} against ${expected}`,
+      );
+    }
+  });
+
+  it("keeps a stencil with many cutters that miss the shape linear (codex on #24)", () => {
+    // Empty pieces used to be split again by every later cutter: 2^n pieces.
+    const cutters = Array.from(
+      { length: 30 },
+      (_, i) =>
+        ` cube {\n  color red\n  size 0.1\n  position ${(i + 1) * 3} 0 0\n }`,
+    ).join("\n");
+    const script = `detail 16\nstencil {\n sphere {\n  color white\n }\n${cutters}\n}`;
+    const started = Date.now();
+    const { area } = surfaces(script, "manifold");
+    assert.ok(Date.now() - started < 2_000);
+    assert.deepEqual([...area.keys()], ["#ffffff"]);
+  });
+
   it("leaves out only faces inside the solid where operands coincide (Chessboard)", () => {
     // The board is a union of a recessed frame and squares sitting in it;
     // three-bvh-csg keeps faces between them that manifold's watertight result
