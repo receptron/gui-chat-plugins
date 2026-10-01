@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.3
+
+- **A slide is explained in a reply of its own, and the host's sequence keeper asks for the next
+  one.** Asked to explain a slide and call the next in the same reply, OpenAI's Realtime said a
+  one-line preamble ("I'll walk through the figures, then move on") and called the next slide, so
+  slides went by unexplained (all six, in one run). With no call to make in that reply, it
+  explained every slide in 6 slideshows of 6; Gemini Live and Grok go on as before. A host needs
+  gui-chat-protocol's `createSequenceKeeper` for a slideshow to go on by itself (MulmoChat and
+  MulmoGlass have it); without one, it stops after each slide until the user says to go on.
+- **Figures go on chart slides.** The prompt says to show the figures the model has (from a search,
+  a document or the user) in a chart with their exact values, units and period; that figures over
+  time, shares of a whole or values side by side are a chart, not a list or a table; never to draw
+  a chart, graph, table, dashboard or key figures as a picture; and never to invent figures. The
+  picture parameter says the same. In a business analysis, Gemini Live had drawn charts as
+  generated pictures with no real numbers, and OpenAI's Realtime had made text slides only.
+- A slide holds only its subject, never notes about the model's work ("Search was successful").
+- "Four to six slides" allows more when the subject or the role's instructions need them.
+
 ## 0.5.2
 
 - **The model explains the whole slide before the next one.** Grok Voice said one or two
