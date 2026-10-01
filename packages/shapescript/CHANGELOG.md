@@ -1,5 +1,33 @@
 # Changelog
 
+## 8.1.0
+
+- **`exportShapeScriptStl`: a printable STL.** The model as one watertight solid for a slicer,
+  through manifold (`manifold-3d`, WebAssembly) rather than the preview's CSG engine, whose output
+  slicers reject as non-manifold. Every top-level solid is merged (no `union` needed), CSG blocks
+  are evaluated by manifold in the preview's order, and the file is in millimetres, Z up, resting
+  on Z = 0 (`unitScale`: mm per unit, default 1). The answer carries a report: size, parts merged
+  and skipped (flat or open parts, by name), bodies, genus, volume, non-manifold edges after a
+  slicer-style merge, and warnings. `shapeScriptToPrintableStl` is the same without the tool.
+  manifold is a new dependency, loaded on first use. The View's Download -> STL is unchanged.
+- **A large `union` no longer runs into the vertex ceiling.** A CSG block charged every
+  intermediate result and kept them all, so a union of n parts cost about n^2 vertices; it now
+  holds and charges only the latest. The time limit is also checked before each boolean, so a
+  big block is refused at the limit rather than running for minutes.
+- **Nested `for` expressions share one iteration budget** (#14): each loop alone was capped, so
+  nesting could ask for 10^10 values. The time limit is checked inside them too.
+- **Tuple `=` and `<>` compare recursively** (#19): nested tuples compared only their first
+  components, and string tuples threw.
+- **`cylinder`, `cone`, `circle` and `polygon` use every `size` component** (#18):
+  `cylinder { size 1 2 3 }` was 1 x 2 x 1.
+- **Portrait render tiles fit the model** (#17): the camera was framed by the height only, and a
+  160 x 900 tile cropped the model to a fifth of its width. Square and landscape tiles are
+  unchanged.
+- **The source editor's saves are queued** (#15), so a second Apply cannot leave the older script
+  on disk; **a reply for a result no longer shown is dropped** (#16).
+- **No non-null assertions**, and no lint exemption for this package. Indexing the code has
+  already bounded goes through `at()`, which throws rather than passing `undefined` on.
+
 ## 8.0.0
 
 - **Moved from MulmoClaude**, where it was `@mulmoclaude/shapescript-plugin` up to 7.1.0. The code,
