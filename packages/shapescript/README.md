@@ -136,6 +136,20 @@ struts and 1,331 joint spheres — exports as 1 body of genus 2,300 in about 9 s
 preview still evaluates a `union` with three-bvh-csg, which is too slow for hundreds of parts and
 is refused at the time limit. The tool and the language prompt both tell the agent so.
 
+Export time and file size grow with the triangle count, so a very large lattice is best written at
+`detail 8`. Measured on a 20 x 20 x 20 cube lattice (26,460 struts, 9,261 joints; 1 body, genus
+17,200, no non-manifold edges either way):
+
+| `detail` | Time | STL    | Peak memory |
+| -------- | ---- | ------ | ----------- |
+| 12       | 54 s | 174 MB | 4.1 GB      |
+| 8        | 32 s | 92 MB  | 2.7 GB      |
+| 6        | 34 s | 131 MB | 3.0 GB      |
+
+Below 8 the coarse struts and spheres intersect into more pieces, so the file grows and the export
+is no faster. The union is done region by region (`spatialUnion`): manifold's WebAssembly build is
+single-threaded, and a lattice's parts overlap only their neighbours.
+
 The View's **Download → STL** still writes the displayed model (`shapeScriptToStl`); it does not
 load manifold in the browser yet.
 

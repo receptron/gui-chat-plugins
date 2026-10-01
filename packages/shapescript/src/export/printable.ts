@@ -15,7 +15,6 @@
 // never exports a printable STL never fetches the WebAssembly.
 
 import * as THREE from "three";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Manifold, ManifoldToplevel } from "manifold-3d";
 import { parseShapeScript } from "../shapescript/parser";
 import {
@@ -61,11 +60,6 @@ export interface PrintableOptions extends ExportOptions {
 /** Vertices this close in the output are one vertex to a slicer. */
 const WELD_MM = 1e-5;
 
-/** Seam vertices of one part closer than this fraction of its extent are
- *  merged before the part goes to manifold: a primitive's UV seam
- *  duplicates its vertices, which leaves it open otherwise. */
-const SEAM_WELD = 1e-6;
-
 let manifoldModule: Promise<ManifoldToplevel> | undefined;
 
 /** manifold's WebAssembly module, loaded once on first use. A failed load is
@@ -99,32 +93,115 @@ export async function shapeScriptToPrintableStl(
   const owned = new Owned();
   const skipped: PrintReport["skipped"] = [];
   try {
-    const group = astToThreeJS(parseShapeScript(script), {
-      ...conversion,
-      wireframe: false,
-      csgEvaluator: manifoldCsg(wasm, owned, skipped),
-    });
-    try {
-      return sceneToPrintableStl(wasm, group, unitScale, owned, skipped);
-    } finally {
-      disposeObject3D(group);
-    }
+    const solids = solidsOfScript(wasm, script, conversion, owned, skipped);
+    return solidsToStl(wasm, solids, unitScale, owned, skipped);
   } finally {
     owned.free();
+  }
+}
+
+/** The script's top-level solids as manifolds. The converted scene is
+ *  released before they are merged: for a big lattice its geometry is
+ *  gigabytes the union does not need. */
+function solidsOfScript(
+  wasm: ManifoldToplevel,
+  script: string,
+  conversion: ExportOptions,
+  owned: Owned,
+  skipped: PrintReport["skipped"],
+): Manifold[] {
+  const group = astToThreeJS(parseShapeScript(script), {
+    ...conversion,
+    wireframe: false,
+    csgEvaluator: manifoldCsg(wasm, owned, skipped),
+  });
+  try {
+    group.updateMatrixWorld(true);
+    return partsOf(wasm, group, owned, skipped);
+  } finally {
+    disposeObject3D(group);
   }
 }
 
 /** Every manifold made during one export, freed together: they live in
  *  WebAssembly memory, which the JavaScript garbage collector does not see. */
 class Owned {
-  private readonly all: Manifold[] = [];
+  private readonly all = new Set<Manifold>();
   keep<T extends Manifold>(manifold: T): T {
-    this.all.push(manifold);
+    this.all.add(manifold);
     return manifold;
+  }
+  /** Free these now: inputs whose result has been evaluated. A large union
+   *  otherwise holds every part until the export ends. */
+  release(manifolds: readonly Manifold[]): void {
+    for (const manifold of manifolds)
+      if (this.all.delete(manifold)) manifold.delete();
   }
   free(): void {
     for (const manifold of this.all) manifold.delete();
+    this.all.clear();
   }
+}
+
+/** Parts per block in `spatialUnion`, and the count below which one batch
+ *  union is used. Measured on a 20 x 20 x 20 cube lattice (35,721 parts):
+ *  one batch union 53 s; blocks of ~36 parts 33 s; of ~560 parts 30 s. */
+const BLOCK_PARTS = 500;
+const SPATIAL_MIN_PARTS = 1000;
+
+/** The union of many parts, merged block by block. manifold's batch union is
+ *  single-threaded here (WebAssembly), and a lattice's parts overlap only
+ *  their neighbours, so unioning each region first and then the regions keeps
+ *  every step small. The inputs are freed once the result is evaluated. */
+function spatialUnion(
+  wasm: ManifoldToplevel,
+  parts: Manifold[],
+  owned: Owned,
+): Manifold {
+  const { Manifold: M } = wasm;
+  const perAxis = Math.max(
+    1,
+    Math.round(Math.cbrt(parts.length / BLOCK_PARTS)),
+  );
+  // One block would be the same union again: batch it.
+  if (parts.length < SPATIAL_MIN_PARTS || perAxis === 1) {
+    const result = owned.keep(M.union(parts));
+    result.numTri();
+    owned.release(parts);
+    return result;
+  }
+  const centres = parts.map((part) => {
+    const { min, max } = part.boundingBox();
+    return [0, 1, 2].map((axis) => (at(min, axis) + at(max, axis)) / 2);
+  });
+  const low = [Infinity, Infinity, Infinity];
+  const high = [-Infinity, -Infinity, -Infinity];
+  for (const centre of centres)
+    for (let axis = 0; axis < 3; axis++) {
+      low[axis] = Math.min(at(low, axis), at(centre, axis));
+      high[axis] = Math.max(at(high, axis), at(centre, axis));
+    }
+  const cell = (centre: number[], axis: number) => {
+    const span = at(high, axis) - at(low, axis);
+    if (span <= 0) return 0;
+    const index = Math.floor(
+      ((at(centre, axis) - at(low, axis)) / span) * perAxis,
+    );
+    return Math.min(perAxis - 1, index);
+  };
+  const blocks = new Map<number, Manifold[]>();
+  parts.forEach((part, i) => {
+    const centre = at(centres, i);
+    const key =
+      (cell(centre, 0) * perAxis + cell(centre, 1)) * perAxis + cell(centre, 2);
+    const block = blocks.get(key);
+    if (block) block.push(part);
+    else blocks.set(key, [part]);
+  });
+  const unions = [...blocks.values()].map((block) =>
+    spatialUnion(wasm, block, owned),
+  );
+  return spatialUnion(wasm, unions, owned);
 }
 
 /** The converter's CSG engine for this export: each block's operands as
@@ -183,9 +260,9 @@ function combine(
   if (rest.length === 0) return first;
   switch (operation) {
     case "union":
-      return owned.keep(M.union([first, ...rest]));
+      return spatialUnion(wasm, [first, ...rest], owned);
     case "difference":
-      return owned.keep(first.subtract(owned.keep(M.union(rest))));
+      return owned.keep(first.subtract(spatialUnion(wasm, rest, owned)));
     case "intersection":
       return owned.keep(M.intersection([first, ...rest]));
     case "xor":
@@ -221,25 +298,24 @@ function geometryOf(manifold: Manifold): THREE.BufferGeometry {
   return geometry;
 }
 
-function sceneToPrintableStl(
+function solidsToStl(
   wasm: ManifoldToplevel,
-  object: THREE.Object3D,
+  solids: Manifold[],
   unitScale: number,
   owned: Owned,
   skipped: PrintReport["skipped"],
 ): { stl: Uint8Array<ArrayBuffer>; report: PrintReport } {
-  object.updateMatrixWorld(true);
-  const solids = partsOf(wasm, object, owned, skipped);
+  const parts = solids.length;
   const nothing = (why: string) =>
     new Error(
       `Nothing to print: ${why}${skipped.length ? ` (skipped: ${skipped.map((s) => s.part).join(", ")})` : ""}`,
     );
   if (solids.length === 0) throw nothing("no part is a closed solid");
-  const merged = owned.keep(wasm.Manifold.union(solids));
+  const merged = spatialUnion(wasm, solids, owned);
   if (merged.isEmpty()) throw nothing("the model has no volume");
   const printed = toPrintCoordinates(merged, unitScale, owned);
   const mesh = printed.getMesh();
-  const report = reportOf(printed, mesh, solids.length, skipped, owned);
+  const report = reportOf(printed, mesh, parts, skipped, owned);
   return {
     stl: binaryStl(mesh.vertProperties, mesh.triVerts, mesh.numProp),
     report,
@@ -297,37 +373,36 @@ function solidOf(
   wasm: ManifoldToplevel,
   geometry: THREE.BufferGeometry,
 ): Manifold | string {
-  geometry.computeBoundingBox();
-  const extent =
-    geometry.boundingBox?.getSize(new THREE.Vector3()).length() ?? 0;
-  const welded = mergeVertices(geometry, Math.max(extent, 1) * SEAM_WELD);
-  try {
-    const position = welded.getAttribute("position");
-    const index = welded.index;
-    if (!index || index.count < 12) return "not a closed solid";
-    const mesh = new wasm.Mesh({
-      numProp: 3,
-      vertProperties: new Float32Array(position.array),
-      triVerts: new Uint32Array(index.array),
-    });
-    mesh.merge();
-    let solid: Manifold;
-    try {
-      solid = new wasm.Manifold(mesh);
-    } catch {
-      return "not a closed solid";
-    }
-    const status = solid.status();
-    if (status !== "NoError" || solid.isEmpty()) {
-      solid.delete();
-      return status === "NotManifold" || status === "NoError"
-        ? "not a closed solid"
-        : status;
-    }
-    return solid;
-  } finally {
-    welded.dispose();
+  const position = geometry.getAttribute("position");
+  const corners = geometry.index?.count ?? position.count;
+  if (corners < 12) return "not a closed solid";
+  const vertProperties = new Float32Array(position.count * 3);
+  for (let v = 0; v < position.count; v++) {
+    vertProperties[v * 3] = position.getX(v);
+    vertProperties[v * 3 + 1] = position.getY(v);
+    vertProperties[v * 3 + 2] = position.getZ(v);
   }
+  const triVerts = geometry.index
+    ? Uint32Array.from(geometry.index.array)
+    : Uint32Array.from({ length: corners }, (_, k) => k);
+  // manifold's own merge closes a primitive's seams (its UV seam duplicates
+  // vertices), so three's mergeVertices pass is not needed.
+  const mesh = new wasm.Mesh({ numProp: 3, vertProperties, triVerts });
+  mesh.merge();
+  let solid: Manifold;
+  try {
+    solid = new wasm.Manifold(mesh);
+  } catch {
+    return "not a closed solid";
+  }
+  const status = solid.status();
+  if (status !== "NoError" || solid.isEmpty()) {
+    solid.delete();
+    return status === "NotManifold" || status === "NoError"
+      ? "not a closed solid"
+      : status;
+  }
+  return solid;
 }
 
 /** ShapeScript is Y-up; slicers are Z-up. Rotate +90 deg about X
@@ -410,32 +485,70 @@ function weldedNonManifoldEdges(mesh: {
   triVerts: Uint32Array;
   numProp: number;
 }): number {
-  const ids = new Map<string, number>();
-  const idOf = (vertex: number): number => {
-    const at = vertex * mesh.numProp;
-    const key = [0, 1, 2]
-      .map((axis) =>
-        Math.round((mesh.vertProperties[at + axis] ?? 0) / WELD_MM),
-      )
-      .join(",");
-    let id = ids.get(key);
-    if (id === undefined) ids.set(key, (id = ids.size));
-    return id;
-  };
-  const edges = new Map<string, number>();
-  for (let t = 0; t < mesh.triVerts.length; t += 3) {
-    const corner = [0, 1, 2].map((k) => idOf(mesh.triVerts[t + k] ?? 0));
-    if (new Set(corner).size < 3) continue;
-    for (let k = 0; k < 3; k++) {
-      const a = corner[k] ?? 0;
-      const b = corner[(k + 1) % 3] ?? 0;
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-      edges.set(key, (edges.get(key) ?? 0) + 1);
-    }
+  const ids = weldedIds(mesh);
+  // Each edge as one number, low id * count + high id, sorted so equal edges
+  // sit together. Typed arrays and a numeric sort rather than string keys in
+  // a Map: millions of triangles took seconds that way.
+  const count = ids.length;
+  const edges = new Float64Array(mesh.triVerts.length);
+  let used = 0;
+  for (let t = 0; t + 2 < mesh.triVerts.length; t += 3) {
+    const a = at(ids, at(mesh.triVerts, t));
+    const b = at(ids, at(mesh.triVerts, t + 1));
+    const c = at(ids, at(mesh.triVerts, t + 2));
+    if (a === b || b === c || a === c) continue;
+    for (const [p, q] of [
+      [a, b],
+      [b, c],
+      [c, a],
+    ] as const)
+      edges[used++] = Math.min(p, q) * count + Math.max(p, q);
   }
+  const sorted = edges.subarray(0, used).sort();
   let bad = 0;
-  for (const count of edges.values()) if (count !== 2) bad++;
+  for (let i = 0; i < sorted.length;) {
+    let j = i + 1;
+    while (j < sorted.length && sorted[j] === sorted[i]) j++;
+    if (j - i !== 2) bad++;
+    i = j;
+  }
   return bad;
+}
+
+/** Each vertex's id once vertices within `WELD_MM` are one: vertices sorted by
+ *  their rounded position, equal ones sharing an id. */
+function weldedIds(mesh: {
+  vertProperties: Float32Array;
+  numProp: number;
+}): Uint32Array {
+  const count = mesh.vertProperties.length / mesh.numProp;
+  const rounded = new Float64Array(count * 3);
+  for (let v = 0; v < count; v++)
+    for (let axis = 0; axis < 3; axis++)
+      rounded[v * 3 + axis] = Math.round(
+        at(mesh.vertProperties, v * mesh.numProp + axis) / WELD_MM,
+      );
+  const order = Uint32Array.from({ length: count }, (_, v) => v).sort(
+    (p, q) =>
+      at(rounded, p * 3) - at(rounded, q * 3) ||
+      at(rounded, p * 3 + 1) - at(rounded, q * 3 + 1) ||
+      at(rounded, p * 3 + 2) - at(rounded, q * 3 + 2),
+  );
+  const ids = new Uint32Array(count);
+  let id = 0;
+  for (let i = 0; i < count; i++) {
+    const v = at(order, i);
+    if (i > 0) {
+      const u = at(order, i - 1);
+      const same =
+        at(rounded, v * 3) === at(rounded, u * 3) &&
+        at(rounded, v * 3 + 1) === at(rounded, u * 3 + 1) &&
+        at(rounded, v * 3 + 2) === at(rounded, u * 3 + 2);
+      if (!same) id++;
+    }
+    ids[v] = id;
+  }
+  return ids;
 }
 
 /** A binary STL of indexed triangles, with each facet's normal from its
