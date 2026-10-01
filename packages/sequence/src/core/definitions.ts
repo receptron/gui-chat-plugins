@@ -139,14 +139,17 @@ export const slideShownInstructions = ({
       : `${label}, the last one, is now on the screen. Say what to do, directly, then wrap up the guide once the user is done.`;
   }
   const label = `Slide ${slide} of ${totalSlides}${titled}`;
-  // The call ends the reply: Grok, asked only to call it "in this same
-  // reply", often said the slide's first sentence, word for word, as a
-  // preamble to the call (half the slides in 21), and the slide was replaced
-  // unexplained; told the call comes last and ends the reply, none in 20.
+  // The explanation is a reply of its own, and the host's sequence keeper
+  // asks for the next slide when it ends. Asked to explain the slide and
+  // call the next one in the same reply, voice models announced the call
+  // instead of explaining: Grok said the slide's first sentence, word for
+  // word, and OpenAI's Realtime a preamble ("I'll walk through the figures,
+  // then move on"), and the next slide replaced this one unexplained. With
+  // no call to make, OpenAI explained every slide in 6 slideshows of 6.
   // The "stop" clause is for when the host missed
   // the user's speech (Gemini can report it too late): the model heard it.
   return slide < totalSlides
-    ? `${label} is now on the screen. Explain it: ${NARRATE_SUBJECT} Then, in this same reply and without waiting for the user, call presentSlide for slide ${slide + 1}: the call is the last thing in your reply, after your whole explanation, and ends it. Nothing you meant to say after it is heard, so a sentence and then the call leaves the slide unexplained. If the user has asked you to stop, or asked something else, since the slideshow began, answer them instead of going on.`
+    ? `${label} is now on the screen. Explain it: ${NARRATE_SUBJECT} This reply is only the explanation: don't call presentSlide in it. When you have finished, you will be asked for slide ${slide + 1}. If the user has asked you to stop, or asked something else, since the slideshow began, answer them instead of going on.`
     : `${label}, the last one, is now on the screen. Explain it: ${NARRATE_SUBJECT} Then wrap up the slideshow.`;
 };
 
@@ -201,10 +204,10 @@ const SLIDE_HTML_DESCRIPTION = [
 const SLIDE_MARKDOWN_DESCRIPTION =
   "For a Markdown slide, instead of imagePrompt: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$.";
 
-const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt: a Chart.js configuration as JSON text, {"type": ..., "data": ...}: { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
+const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt (for numbers: real figures you have, never a picture of a chart): a Chart.js configuration as JSON text, {"type": ..., "data": ...}: { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
 
 export const PRESENT_SLIDE_PROMPT: string =
-  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides, then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it, and explain everything on a slide before showing the next; put on a slide only what you will explain. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
+  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides (more when the subject or your instructions need them), then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it, and explain everything on a slide before showing the next; put on a slide only what you will explain. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. Numbers go on a chart slide: when you have figures (from a search, a document or the user: revenue, market share, growth, prices, counts over time), show them in a chart with those exact values, labelled with their units and the year or period, and say where they come from. Figures over time, shares of a whole or values side by side are a chart, not a list or table on a Markdown or HTML slide. Never make a chart, graph or table a picture (imagePrompt): a picture of a chart has made-up bars and no real numbers. A slideshow about a business, a market or a comparison of companies has its figures on chart slides, not only in text. Never invent figures; with none to show, leave the chart out. A slide holds only its subject, never notes about your work (what you searched for, that a search succeeded). When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
 
 export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
   type: "function",
@@ -228,7 +231,7 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
       imagePrompt: {
         type: "string",
         description:
-          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. For a step, show the action: hands, tools and the object. Leave it out for a chart, Markdown or HTML slide.",
+          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. Never a chart, graph, table, dashboard, infographic, key figures or anything with numbers: those are chart, Markdown or HTML slides. For a step, show the action: hands, tools and the object. Leave it out for a chart, Markdown or HTML slide.",
       },
       html: {
         type: "string",
