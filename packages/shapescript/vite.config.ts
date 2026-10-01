@@ -35,6 +35,9 @@ export default defineConfig({
       // own hoisted copy is the one that runs.
       external: [
         "@gui-chat-plugin/common",
+        // ESM-only, with its WebAssembly beside it: imported dynamically by
+        // the printable STL export and resolved by the host, never bundled.
+        "manifold-3d",
         "vue",
         "gui-chat-protocol",
         "gui-chat-protocol/vue",

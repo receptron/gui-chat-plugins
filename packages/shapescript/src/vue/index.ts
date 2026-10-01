@@ -98,6 +98,7 @@ for x in -5 to 5 {
 ### Primitives & CSG:
 Shapes: cube, sphere, icosphere, cylinder, cone, torus, circle, square, roundrect, polygon
 CSG: union, difference, intersection, xor, stencil
+Lattices and other models of hundreds of parts (struts, joints, beams): place the parts side by side with NO union block — exportShapeScriptStl merges every top-level solid into one printable solid anyway, while a union of hundreds of parts is too slow for the preview and is refused there. Make parts overlap where they join (a joint sphere at each node, struts reaching into it) so they fuse rather than merely touch.
 Properties: position, orientation (alias rotation), size, detail, smoothing, name
 Materials: color (1–4 values, hex #FF0000, names like red/orange/gray, hsb(...)), opacity, metallicity, roughness, glow,
 material NAME (from define NAME material { … }); background R G B sets the scene colour.

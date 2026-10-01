@@ -24,6 +24,7 @@ import {
 } from "../src/shapescript/toThreeJS";
 import { parseShapeScript } from "../src/shapescript/parser";
 import { disposeObject3D } from "../src/shapescript/dispose";
+import { defined } from "../src/shapescript/at";
 
 /** In-memory FileOps. Only the four methods the plugin calls are real; the rest
  *  throw, so a future call site that needs them fails loudly in a test rather
@@ -173,7 +174,10 @@ describe("presentShapeScript persistence", () => {
       filePath?.startsWith("artifacts/shapes/"),
       `unexpected path: ${filePath}`,
     );
-    assert.equal(artifacts.store.get(toArtifactsRelative(filePath!)), CUBE);
+    assert.equal(
+      artifacts.store.get(toArtifactsRelative(defined(filePath, "filePath"))),
+      CUBE,
+    );
     // The source travels in the result too, so the View renders without a round trip.
     assert.equal(result.data.script, CUBE);
   });

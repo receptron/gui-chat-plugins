@@ -112,6 +112,8 @@ UNITS (same as upstream ShapeScript — https://shapescript.info/mac/):
 ### CSG Operations:
 union, difference, intersection, xor, stencil
 
+Lattices and other models of hundreds of parts (struts, joints, beams): place the parts side by side with NO union block — exportShapeScriptStl merges every top-level solid into one printable solid anyway, while a union of hundreds of parts is too slow for the preview and is refused there. Make parts overlap where they join (a joint sphere at each node, struts reaching into it) so they fuse rather than merely touch.
+
 Example:
 difference {
     sphere {

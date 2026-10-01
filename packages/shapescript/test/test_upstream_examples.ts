@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { parseShapeScript } from "../src/shapescript/parser";
 import { astToThreeJS, sceneInfoOf } from "../src/shapescript/toThreeJS";
 import { disposeObject3D } from "../src/shapescript/dispose";
+import { at } from "../src/shapescript/at";
 
 // The upstream project's own Examples, unmodified (see the LICENSE.md beside
 // them). Each is either rendered here or refused with a message that names
@@ -127,7 +128,7 @@ describe("upstream example scripts", () => {
           warnings.join("; "),
         );
         expected.warnings.forEach((pattern, i) =>
-          assert.match(warnings[i]!, pattern),
+          assert.match(at(warnings, i), pattern),
         );
       } finally {
         disposeObject3D(group);

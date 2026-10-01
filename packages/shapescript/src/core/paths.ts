@@ -90,10 +90,28 @@ export function usdzArtifactPath(
   now: Date = new Date(),
   token: string = randomToken(),
 ): ShapePath {
+  return exportArtifactPath(title, ".usdz", now, token);
+}
+
+/** Where `exportShapeScriptStl` writes: beside the models, as the USDZ is. */
+export function stlArtifactPath(
+  title: string | undefined,
+  now: Date = new Date(),
+  token: string = randomToken(),
+): ShapePath {
+  return exportArtifactPath(title, ".stl", now, token);
+}
+
+function exportArtifactPath(
+  title: string | undefined,
+  ext: string,
+  now: Date,
+  token: string,
+): ShapePath {
   const relPath = buildArtifactRelPath({
     dir: SHAPE_DIR,
     title,
-    ext: ".usdz",
+    ext,
     fallback: SHAPE_FALLBACK_SLUG,
     now,
     partitioned: false,

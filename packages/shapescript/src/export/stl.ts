@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { exportShapeScript, type ExportOptions } from "./model";
+import { reverseWinding } from "../shapescript/winding";
 
 /** The MIME type a `.stl` is served / downloaded as (IANA's registration). */
 export const STL_MIME_TYPE = "model/stl";
@@ -50,7 +51,7 @@ export async function sceneToStl(
  *  weights (`setMorphAt`) live in a texture `getVertexPosition` never reads,
  *  so each instance's are loaded onto the mesh for its bake and the mesh's
  *  own restored after (codex on #3171). */
-function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
+export function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
   const instanced = mesh as THREE.InstancedMesh;
   if (!instanced.isInstancedMesh)
     return [bakedWorldGeometry(mesh, mesh.matrixWorld)];
@@ -98,24 +99,8 @@ function bakedWorldGeometry(
   return geometry;
 }
 
-/** Swap the second and third vertex of every triangle in place. */
-function reverseWinding(geometry: THREE.BufferGeometry): void {
-  const attribute = geometry.index ?? geometry.getAttribute("position");
-  for (let face = 0; face * 3 < attribute.count; face++) {
-    for (let k = 0; k < attribute.itemSize; k++) {
-      const b = attribute.getComponent(face * 3 + 1, k);
-      attribute.setComponent(
-        face * 3 + 1,
-        k,
-        attribute.getComponent(face * 3 + 2, k),
-      );
-      attribute.setComponent(face * 3 + 2, k, b);
-    }
-  }
-}
-
 /** The meshes under `object` that are shown: none below a hidden node. */
-function visibleMeshes(object: THREE.Object3D): THREE.Mesh[] {
+export function visibleMeshes(object: THREE.Object3D): THREE.Mesh[] {
   if (!object.visible) return [];
   const own = (object as THREE.Mesh).isMesh ? [object as THREE.Mesh] : [];
   return own.concat(...object.children.map(visibleMeshes));

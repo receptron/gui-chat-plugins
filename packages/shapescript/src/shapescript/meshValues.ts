@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { RGBA } from "./evaluator";
+import { at, triangleOf, type Triangle } from "./at";
 
 /** The value types that hold geometry, shared by the evaluator (members) and
  *  the converter (building and placing them). */
@@ -48,8 +49,8 @@ export function boundsOf(points: readonly Point3[]): BoundsValue {
   const max: Point3 = [-Infinity, -Infinity, -Infinity];
   for (const point of points) {
     for (let axis = 0; axis < 3; axis++) {
-      min[axis] = Math.min(min[axis]!, point[axis]!);
-      max[axis] = Math.max(max[axis]!, point[axis]!);
+      min[axis] = Math.min(at(min, axis), at(point, axis));
+      max[axis] = Math.max(at(max, axis), at(point, axis));
     }
   }
   return points.length
@@ -107,9 +108,9 @@ export function meshVolume(mesh: MeshValue): number {
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   for (const triangle of trianglesOf(mesh.geometry)) {
-    a.fromArray(triangle.points[0]!);
-    b.fromArray(triangle.points[1]!);
-    c.fromArray(triangle.points[2]!);
+    a.fromArray(at(triangle.points, 0));
+    b.fromArray(at(triangle.points, 1));
+    c.fromArray(at(triangle.points, 2));
     volume += a.dot(b.cross(c));
   }
   return Math.abs(volume) / 6;
@@ -124,8 +125,8 @@ export function triangulatePolygon(
   // Newell's normal, then a 2D basis in the polygon's plane for ShapeUtils.
   const normal = new THREE.Vector3();
   for (let i = 0; i < points.length; i++) {
-    const current = points[i]!;
-    const next = points[(i + 1) % points.length]!;
+    const current = at(points, i);
+    const next = at(points, (i + 1) % points.length);
     normal.x += (current[1] - next[1]) * (current[2] + next[2]);
     normal.y += (current[2] - next[2]) * (current[0] + next[0]);
     normal.z += (current[0] - next[0]) * (current[1] + next[1]);
@@ -142,11 +143,7 @@ export function triangulatePolygon(
     const p = new THREE.Vector3().fromArray(point);
     return new THREE.Vector2(p.dot(u), p.dot(v));
   });
-  return THREE.ShapeUtils.triangulateShape(flat, []).map(([a, b, c]) => [
-    a!,
-    b!,
-    c!,
-  ]);
+  return THREE.ShapeUtils.triangulateShape(flat, []).map(triangleOf);
 }
 
 /** Euclid's icosahedron, vertex for vertex and face for face, so that
@@ -206,18 +203,18 @@ export function icosphereGeometry(
     [8, 6, 7],
     [9, 8, 1],
   ];
-  let triangles: THREE.Vector3[][] = faces.map((face) =>
-    face.map((i) => v[i]!.clone()),
+  let triangles: Triangle<THREE.Vector3>[] = faces.map((face) =>
+    triangleOf(face.map((i) => at(v, i).clone())),
   );
   for (let level = 0; level < subdivisions; level++) {
-    triangles = triangles.flatMap(([a, b, c]) => {
-      const ab = a!.clone().lerp(b!, 0.5);
-      const bc = b!.clone().lerp(c!, 0.5);
-      const ca = c!.clone().lerp(a!, 0.5);
+    triangles = triangles.flatMap(([a, b, c]): Triangle<THREE.Vector3>[] => {
+      const ab = a.clone().lerp(b, 0.5);
+      const bc = b.clone().lerp(c, 0.5);
+      const ca = c.clone().lerp(a, 0.5);
       return [
-        [a!, ab, ca],
-        [ab, b!, bc],
-        [bc, c!, ca],
+        [a, ab, ca],
+        [ab, b, bc],
+        [bc, c, ca],
         [ab, bc, ca],
       ];
     });
@@ -244,7 +241,7 @@ export function geometryFromPolygons(
   for (const polygon of polygons) {
     for (const [a, b, c] of triangulatePolygon(polygon.points)) {
       for (const i of [a, b, c]) {
-        positions.push(...polygon.points[i]!);
+        positions.push(...at(polygon.points, i));
         uvs.push(0, 0);
         if (withColors) {
           const [r = 0.8, g = 0.8, b2 = 0.8] =

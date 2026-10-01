@@ -31,13 +31,13 @@ and each tool says what happens without one.
 
 ## Exports
 
-| Entry         | Contents                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.`           | `TOOL_NAME`, `TOOL_DEFINITION`, `executePresentShapeScript`, `pluginCore`, `samples`, `parseShapeScript`, `astToThreeJS`, `executeShapeScriptDispatch` + the `artifacts/shapes` path rules                                                                                                                                                                                            |
-| `.` (export)  | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`); `shapeScriptToGlb` / `sceneToGlb` / `GLB_*` and `shapeScriptToStl` / `sceneToStl` / `STL_*` alongside. Browser-safe: none needs a canvas, so the View's download buttons and a host's MCP tool run the same code. |
-| `./render`    | **server-only** — `renderShapeScriptSheet` and the render page. Rasterises a model to a PNG with Puppeteer's headless Chromium (an OPTIONAL peer); a host without one gets `RenderUnavailableError` carrying the install hint.                                                                                                                                                        |
-| `./vue`       | the `ToolPlugin` (View + Preview + `SYSTEM_PROMPT`), plus everything on `.`                                                                                                                                                                                                                                                                                                           |
-| `./style.css` | the compiled component styles (Vite lib mode does not auto-inject them)                                                                                                                                                                                                                                                                                                               |
+| Entry         | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.`           | `TOOL_NAME`, `TOOL_DEFINITION`, `executePresentShapeScript`, `pluginCore`, `samples`, `parseShapeScript`, `astToThreeJS`, `executeShapeScriptDispatch` + the `artifacts/shapes` path rules                                                                                                                                                                                                                                                                                                                                    |
+| `.` (export)  | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`); `shapeScriptToGlb` / `sceneToGlb` / `GLB_*` and `shapeScriptToStl` / `sceneToStl` / `STL_*` alongside; the printable STL and the **`exportShapeScriptStl`** tool (`shapeScriptToPrintableStl`, `executeExportShapeScriptStl`, `EXPORT_STL_*`). Browser-safe: none needs a canvas, so the View's download buttons and a host's MCP tool run the same code. |
+| `./render`    | **server-only** — `renderShapeScriptSheet` and the render page. Rasterises a model to a PNG with Puppeteer's headless Chromium (an OPTIONAL peer); a host without one gets `RenderUnavailableError` carrying the install hint.                                                                                                                                                                                                                                                                                                |
+| `./vue`       | the `ToolPlugin` (View + Preview + `SYSTEM_PROMPT`), plus everything on `.`                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `./style.css` | the compiled component styles (Vite lib mode does not auto-inject them)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ```ts
 import type { ToolContext } from "gui-chat-protocol";
@@ -90,7 +90,54 @@ USDZ units are metres, so `size 1` is one metre in AR.
 
 The same menu also offers **GLB** (binary glTF, for the web and game engines; vertex colours
 survive as `COLOR_0`) and **STL** (binary, geometry only, in world space, for slicers),
-built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. Neither has an MCP tool yet.
+built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. That STL is the model as displayed,
+every part a separate shell; for printing, use the printable STL below.
+
+## Printable STL: `exportShapeScriptStl`
+
+`exportShapeScriptStl` writes the model as **one watertight solid** for a slicer, through
+[manifold](https://github.com/elalish/manifold) (`manifold-3d`, WebAssembly) instead of the
+preview's CSG engine, whose output is not watertight:
+
+- **Every top-level solid is merged**: parts placed side by side print as one object, without a
+  `union` block. CSG blocks are evaluated by manifold too, in the order the preview evaluates
+  them (`union`, `difference`, `intersection`, `xor`; `stencil` keeps its first operand's shape),
+  wherever they occur — placed, stored with `define`, or returned by a function. A block whose
+  result is empty is left out and reported; a model with nothing left is refused.
+- **Print coordinates**: millimetres, Z up, resting on Z = 0. `unitScale` is millimetres per
+  ShapeScript unit (default 1, so `cube` is a 1 mm cube).
+- **Parts that are not closed solids** — a flat `circle`, a `fill`, an open path, text outlines —
+  are skipped and listed, by `name` where they have one; a CSG block whose first operand is one
+  of them is skipped too.
+
+It answers the saved path and a printability report (`PrintReport`, also returned on its own by
+`shapeScriptToPrintableStl`). For a 2 x 2 x 2 cube lattice — a strut on every cell edge, a joint
+sphere on every node — at `unitScale` 10:
+
+```
+Size 23.5 x 23.5 x 23.5 mm, 1 body, genus 28, volume 1681.4 mm3, 9468 triangles.
+81 part(s) merged, 0 skipped; 0 non-manifold edges.
+```
+
+Genus 28 is struts - nodes + 1 (54 - 27 + 1): the struts and joints are fused, not overlapping.
+
+with a warning when parts only touch (non-manifold edges after merging vertices within 1e-5 mm,
+as a slicer does), when parts were skipped, and when the result is more than one body.
+
+manifold is loaded on first use with a dynamic `import()`, so a host that never exports a
+printable STL never loads its WebAssembly. It is a dependency of this package, and it brings its
+own (`@gltf-transform/*`, `commander`, … for its CAD tooling, which this package does not call).
+Wire the tool like the USDZ one, with the same `{ files }` context and
+`EXPORT_STL_TOOL_TIMEOUT_MS`.
+
+**Lattices.** A lattice of hundreds of struts and joints is best written as loose parts, with
+no `union` block: this export merges them into one solid (a 10 x 10 x 10 cube lattice — 3,630
+struts and 1,331 joint spheres — exports as 1 body of genus 2,300 in about 9 s), while the
+preview still evaluates a `union` with three-bvh-csg, which is too slow for hundreds of parts and
+is refused at the time limit. The tool and the language prompt both tell the agent so.
+
+The View's **Download → STL** still writes the displayed model (`shapeScriptToStl`); it does not
+load manifold in the browser yet.
 
 ## The gallery: `manageShapeScript`
 

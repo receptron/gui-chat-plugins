@@ -24,6 +24,7 @@ import {
 } from "../src/export/tool";
 import { usdzArtifactPath } from "../src/core/paths";
 import { DEFAULT_MAX_DURATION_MS } from "../src/shapescript/toThreeJS";
+import { defined } from "../src/shapescript/at";
 
 const CUBE = "cube { size 1 }";
 const CSG =
@@ -110,7 +111,7 @@ describe("shapeScriptToUsdz", () => {
   it("exports a CSG result as mesh geometry in the stage", async () => {
     const [stage] = zipEntries(await shapeScriptToUsdz(CSG));
     assert.equal(stage?.name, "model.usda");
-    assert.match(stage!.text, /def Mesh/);
+    assert.match(defined(stage, "stage").text, /def Mesh/);
   });
 
   it("reports ShapeScript errors rather than writing a broken file", async () => {

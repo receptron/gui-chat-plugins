@@ -83,6 +83,8 @@ import {
 } from "./meshValues";
 import { disposeObject3D, disposeScratch } from "./dispose";
 import { minkowskiSum } from "./minkowski";
+import { at, defined } from "./at";
+import { reverseWinding } from "./winding";
 
 /** What a conversion reports besides geometry. Stored on the root group's
  *  `userData` so both viewers and the tool result can read it. */
@@ -194,8 +196,30 @@ function loftSection(operand: THREE.Mesh | THREE.Line): THREE.Vector3[] {
   return points;
 }
 
+/** One operand of a CSG block, for a `ConversionOptions.csgEvaluator`. */
+export interface CsgOperand {
+  geometry: THREE.BufferGeometry;
+  /** The ShapeScript `name`, or "" for an unnamed part. */
+  name: string;
+}
+
+/** Evaluates one CSG block; see `ConversionOptions.csgEvaluator`. */
+export type CsgEvaluator = (
+  operation: CSGNode["operation"],
+  operands: readonly CsgOperand[],
+) => THREE.BufferGeometry | null;
+
 export interface ConversionOptions {
   wireframe?: boolean;
+  /** Evaluate every CSG block with this instead of three-bvh-csg: given the
+   *  block's operation and its operands (in the block's own space, in the
+   *  order the default engine takes them), it answers the result in that
+   *  space, or null to leave the block out. Called wherever a block occurs —
+   *  placed, stored with `define`, returned by a function — so the result is
+   *  the same in every case. For an exporter whose engine must differ from
+   *  the preview's (the printable STL, through manifold, since
+   *  three-bvh-csg's output is not watertight). The preview never sets it. */
+  csgEvaluator?: CsgEvaluator;
   /** Hard ceiling on the objects one script may produce. See
    *  `DEFAULT_MAX_NODES`. */
   maxNodes?: number;
@@ -233,6 +257,50 @@ export interface ConversionOptions {
 // tree at ~0.5M vertices was refused as "more than 100000 objects" — a tenth
 // of the vertex budget, built in under 200ms. Counting objects lines the two
 // ceilings up: 100k cylinders at `detail 8` is ~5M vertices, the vertex cap.
+/** A curved primitive's depth from `size`. `cylinder` and `cone` are built
+ *  round, from the diameter `size[0]`, so a different `size[2]` makes the
+ *  cross-section an ellipse, as `sphere` and upstream scale the unit shape
+ *  by every component (gui-chat-plugins#18). `evaluateSize` fills an omitted
+ *  z with x, so `size 1 2` stays round. */
+function stretchedZ(
+  geometry: THREE.BufferGeometry,
+  size: Vector3,
+): THREE.BufferGeometry {
+  const [x, , z] = size;
+  return x !== 0 && z !== x ? geometry.scale(1, 1, z / x) : geometry;
+}
+
+/** A flat round primitive's height from `size`: built round at `diameter`,
+ *  so a different `size[1]` makes it an ellipse. A zero falls back to the
+ *  diameter, as `square` falls back to its side (#18). */
+function stretchedY(
+  geometry: THREE.BufferGeometry,
+  diameter: number,
+  height: number,
+): THREE.BufferGeometry {
+  const target = height || diameter;
+  return target !== diameter
+    ? geometry.scale(1, target / diameter, 1)
+    : geometry;
+}
+
+/** One CSG operand for a `csgEvaluator`: its positions and triangles in the
+ *  block's space. A mirroring transform (a negative determinant, `scale -1 1 1`)
+ *  turns every triangle inside out, which the renderer hides by drawing back
+ *  faces — an evaluator reading the winding as outward would not, so it is
+ *  reversed here, as the STL export reverses it. */
+function operandGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    mesh.geometry.getAttribute("position").clone(),
+  );
+  if (mesh.geometry.index) geometry.setIndex(mesh.geometry.index.clone());
+  geometry.applyMatrix4(mesh.matrixWorld);
+  if (mesh.matrixWorld.determinant() < 0) reverseWinding(geometry);
+  return geometry;
+}
+
 export const DEFAULT_MAX_NODES = 100_000;
 export const DEFAULT_MAX_LOOP_ITERATIONS = 100_000;
 
@@ -424,6 +492,7 @@ export class Converter {
       shape: (node) => this.shapeValue(node),
       call: (fn, args) => this.callShapeFunction(fn, args),
       retain: (geometry) => this.chargeRetained(geometry),
+      checkBudget: () => this.checkDuration(),
     };
     this.evaluator.maxLoopIterations = this.maxLoopIterations;
     // Initialize with identity transform
@@ -524,17 +593,53 @@ export class Converter {
     return new THREE.Mesh(geometry, material);
   }
 
+  /** A CSG block through `csgEvaluator`: the operands as geometries in the
+   *  block's space, the answer as one mesh in the first operand's material,
+   *  placed where the block is. Nothing when the evaluator leaves it out. */
+  private evaluateCSGWith(
+    evaluate: CsgEvaluator,
+    operation: CSGNode["operation"],
+    meshes: THREE.Mesh[],
+    savedMatrix: THREE.Matrix4,
+  ): THREE.Object3D {
+    const operands = meshes.map((mesh) => ({
+      geometry: operandGeometry(mesh),
+      name: mesh.name,
+    }));
+    try {
+      const geometry = evaluate(operation, operands);
+      if (!geometry) return new THREE.Group();
+      const first = at(meshes, 0);
+      const material = Array.isArray(first.material)
+        ? at(first.material, 0)
+        : first.material;
+      const result = this.makeMesh(geometry, material);
+      result.applyMatrix4(savedMatrix);
+      result.updateMatrixWorld(true);
+      return result;
+    } finally {
+      for (const operand of operands) operand.geometry.dispose();
+    }
+  }
+
+  /** Refuse once the conversion has run past `maxDurationMs`. Called between
+   *  nodes, and from inside long `for` expressions through the evaluator's
+   *  `checkBudget` hook. */
+  private checkDuration(): void {
+    if (Date.now() - this.startedAt > this.maxDurationMs) {
+      throw new ShapeScriptLimitError(
+        `ShapeScript took longer than ${this.maxDurationMs}ms to build — simplify the model or use fewer boolean operations`,
+      );
+    }
+  }
+
   private convertNode(node: SceneNode): THREE.Object3D | null {
     // Counted on the way IN, so a runaway loop stops at the limit rather than
     // after building everything it asked for. Only nodes that put an object
     // in the scene are charged: a transform, a colour or a block costs nothing
     // to keep, and a loop of nothing is the iteration and duration caps' job.
     if (GEOMETRY_NODE_TYPES.has(node.type)) this.chargeNode();
-    if (Date.now() - this.startedAt > this.maxDurationMs) {
-      throw new ShapeScriptLimitError(
-        `ShapeScript took longer than ${this.maxDurationMs}ms to build — simplify the model or use fewer boolean operations`,
-      );
-    }
+    this.checkDuration();
     switch (node.type) {
       case "shape":
         return this.convertShape(node);
@@ -1223,7 +1328,7 @@ export class Converter {
       node,
     ]);
     if (geometries.length === 0) {
-      if (captured.length === 1) return captured[0]!;
+      if (captured.length === 1) return at(captured, 0);
       if (captured.length > 1) return captured;
       throw new Error("The shape used as a value produced nothing");
     }
@@ -1261,7 +1366,7 @@ export class Converter {
       }
       if (captured.length === 0)
         throw new Error(`Function \`${name}\` produced no value`);
-      return captured.length === 1 ? captured[0]! : captured;
+      return captured.length === 1 ? at(captured, 0) : captured;
     });
   }
 
@@ -1321,12 +1426,16 @@ export class Converter {
           : size[1];
         // One radius may be zero — that is a cone, not a degenerate cylinder.
         this.requireExtent("cylinder", [radiusTop || radiusBottom, height]);
-        return new THREE.CylinderGeometry(
+        const cylinder = new THREE.CylinderGeometry(
           radiusTop,
           radiusBottom,
           height,
           this.detailLevel,
         );
+        // Explicit radii say the cross-section is round.
+        return node.properties.radiusTop || node.properties.radiusBottom
+          ? cylinder
+          : stretchedZ(cylinder, size);
       }
 
       case "cone": {
@@ -1335,7 +1444,10 @@ export class Converter {
           ? this.evaluateNumber(node.properties.height)
           : size[1];
         this.requireExtent("cone", [radius, height]);
-        return new THREE.ConeGeometry(radius, height, this.detailLevel);
+        return stretchedZ(
+          new THREE.ConeGeometry(radius, height, this.detailLevel),
+          size,
+        );
       }
 
       case "torus":
@@ -1343,7 +1455,11 @@ export class Converter {
 
       case "circle": {
         const radius = (size[0] || 1) / 2;
-        return new THREE.CircleGeometry(radius, this.detailLevel);
+        return stretchedY(
+          new THREE.CircleGeometry(radius, this.detailLevel),
+          radius * 2,
+          size[1],
+        );
       }
 
       case "square": {
@@ -1364,7 +1480,11 @@ export class Converter {
           throw new Error(
             `Polygon sides must be an integer from 3 to ${MAX_DETAIL}`,
           );
-        return new THREE.CircleGeometry(radius, sides);
+        return stretchedY(
+          new THREE.CircleGeometry(radius, sides),
+          radius * 2,
+          size[1],
+        );
       }
 
       default:
@@ -1635,6 +1755,18 @@ export class Converter {
 
       scratch.push(...meshes);
 
+      const custom = this.options.csgEvaluator;
+      if (custom) {
+        const result = this.evaluateCSGWith(
+          custom,
+          node.operation,
+          meshes,
+          savedMatrix,
+        );
+        disposeScratch(scratch, result);
+        return result;
+      }
+
       // Convert meshes to Brushes with materials
       const brushes = meshes.map((mesh) => {
         const brush = new Brush(mesh.geometry, mesh.material);
@@ -1651,13 +1783,48 @@ export class Converter {
       if (firstBrush === undefined)
         throw new Error("CSG operation needs at least one child shape");
       let result = firstBrush;
+      // The results this block's booleans produced and are still holding,
+      // with the vertices each was charged. Only the latest survives a step:
+      // charging and keeping every intermediate made a union of n parts cost
+      // ~n^2 vertices rather than its own size, which is how a lattice
+      // `union` hit the vertex ceiling. Operands are not in here — they are
+      // charged where they were built and freed with the scratch at the end.
+      const intermediates = new Map<Brush, number>();
+      const produce = (brush: Brush): Brush => {
+        const count = brush.geometry.getAttribute("position")?.count ?? 0;
+        this.chargeEstimate(count);
+        this.vertexCount += count;
+        intermediates.set(brush, count);
+        return brush;
+      };
+      // Free every intermediate but `keep` and give back its charge. By
+      // geometry only: materials are the operands', still in use.
+      const releaseIntermediates = (keep: Brush): void => {
+        for (const [brush, count] of intermediates) {
+          if (brush === keep) continue;
+          brush.geometry.dispose();
+          this.vertexCount -= count;
+          intermediates.delete(brush);
+          // Dropped from `scratch` too: dispose() frees GPU buffers only, and
+          // a reference there would keep its vertex arrays and BVH alive until
+          // the block ends — the memory the charge was just refunded for.
+          for (let k = scratch.length - 1; k >= 0; k--)
+            if (scratch[k] === brush) scratch.splice(k, 1);
+        }
+      };
 
       for (let i = 1; i < brushes.length; i++) {
         const brush = brushes[i];
         if (brush === undefined) continue;
+        // The clock is otherwise checked only between scene nodes, and a whole
+        // fold is one node. Once intermediates stopped piling up against the
+        // vertex ceiling, that ceiling no longer cut a big union short: a
+        // 200-part lattice ran for minutes. One boolean cannot be interrupted,
+        // but the next is not started.
+        this.checkDuration();
 
-        // Every `evaluate()` allocates a fresh geometry, and the operand it
-        // replaces stops being reachable — so record each one.
+        // Every `evaluate()` allocates a fresh geometry; the operands are
+        // recorded for the final cleanup, the result is an intermediate.
         const evaluate = (
           a: Brush,
           b: Brush,
@@ -1666,12 +1833,7 @@ export class Converter {
           scratch.push(a, b);
           const produced = csgEvaluator.evaluate(a, b, operation);
           scratch.push(produced);
-          this.chargeEstimate(
-            produced.geometry.getAttribute("position")?.count ?? 0,
-          );
-          this.vertexCount +=
-            produced.geometry.getAttribute("position")?.count ?? 0;
-          return produced;
+          return produce(produced);
         };
 
         switch (node.operation) {
@@ -1705,7 +1867,7 @@ export class Converter {
             const outside = evaluate(result, brush, HOLLOW_SUBTRACTION);
             const inside = evaluate(result, brush, HOLLOW_INTERSECTION);
             inside.material = Array.isArray(brush.material)
-              ? brush.material[0]!
+              ? at(brush.material, 0)
               : brush.material;
             inside.geometry.clearGroups();
             inside.geometry.addGroup(
@@ -1740,16 +1902,15 @@ export class Converter {
                   part.geometry.index?.count ??
                   part.geometry.getAttribute("position").count;
               }
-              result = new Brush(geometry, materials);
+              result = produce(new Brush(geometry, materials));
               scratch.push(result);
-              this.chargeEstimate(geometry.getAttribute("position").count);
-              this.vertexCount += geometry.getAttribute("position").count;
             } finally {
               geometries.forEach((geometry) => geometry.dispose());
             }
             break;
           }
         }
+        releaseIntermediates(result);
       }
 
       // Ensure the result has a proper material
@@ -2236,14 +2397,14 @@ export class Converter {
             for (const part of parts)
               this.chargeEstimate(part.getAttribute("position").count);
             const geometry =
-              parts.length === 1 ? parts[0]! : mergeMeshGeometries(parts);
+              parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
             if (parts.length > 1) parts.forEach((part) => part.dispose());
             return geometry;
           },
         );
       }
       return this.withPathDetail(() => {
-        const path = node.path!;
+        const path = defined(node.path, "the fill's path");
         const points = this.collectPathPoints(path);
         const shape = this.shapeFromPathPoints(points);
         const curveSegments = Math.max(1, Math.floor(this.detailLevel / 4));
@@ -2300,7 +2461,7 @@ export class Converter {
           loftGeometry(sweepRings(section, points, closed), closed),
         );
         const geometry =
-          parts.length === 1 ? parts[0]! : mergeMeshGeometries(parts);
+          parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
         if (parts.length > 1) parts.forEach((part) => part.dispose());
         return geometry;
       },
@@ -2333,7 +2494,7 @@ export class Converter {
       if (meshes.length + lines.length !== 1)
         throw new Error("`along` needs exactly one path");
       const line = lines[0];
-      const points = line ? linePoints(line) : profileOf(meshes[0]!);
+      const points = line ? linePoints(line) : profileOf(at(meshes, 0));
       if (points.length < 2)
         throw new Error("`along` needs a path with at least two points");
       return { points, closed: line === undefined };
@@ -2859,7 +3020,7 @@ export class Converter {
     let offset = 0;
     for (const ring of layout.rings) {
       ring.forEach((point, i) => {
-        const following = ring[(i + 1) % ring.length]!;
+        const following = at(ring, (i + 1) % ring.length);
         positions.set(
           [point.x, point.y, 0, following.x, following.y, 0],
           offset,
@@ -2923,8 +3084,9 @@ export class Converter {
     return this.buildFromChildren(node, (meshes) => {
       if (meshes.length < 2)
         throw new Error("`minkowski` needs at least two shapes");
-      const [first, ...rest] = meshes;
-      let geometry = first!.geometry.clone().applyMatrix4(first!.matrixWorld);
+      const [head, ...rest] = meshes;
+      const first = defined(head, "minkowski's first shape");
+      let geometry = first.geometry.clone().applyMatrix4(first.matrixWorld);
       const identity = new THREE.Matrix4();
       try {
         for (const mesh of rest) {
@@ -2944,13 +3106,13 @@ export class Converter {
         throw error;
       }
       this.chargeEstimate(geometry.getAttribute("position").count);
-      const color = uniformColorOf(first!);
+      const color = uniformColorOf(first);
       if (color)
         geometry.setAttribute(
           "color",
           new THREE.Float32BufferAttribute(
             new Float32Array(geometry.getAttribute("position").count * 3).map(
-              (_, i) => color[i % 3]!,
+              (_, i) => at(color, i % 3),
             ),
             3,
           ),
@@ -3155,7 +3317,7 @@ function coloredClone(mesh: THREE.Mesh): THREE.BufferGeometry {
     geometry.setAttribute(
       "color",
       new THREE.Float32BufferAttribute(
-        new Float32Array(count * 3).map((_, i) => color[i % 3]!),
+        new Float32Array(count * 3).map((_, i) => at(color, i % 3)),
         3,
       ),
     );
@@ -3223,7 +3385,7 @@ function mergeMeshGeometries(
     return flat;
   });
   const merged =
-    prepared.length === 1 ? prepared[0]! : mergeGeometries(prepared);
+    prepared.length === 1 ? at(prepared, 0) : mergeGeometries(prepared);
   if (!merged) throw new Error("Could not combine the shapes into one mesh");
   if (prepared.length > 1) prepared.forEach((part) => part.dispose());
   return merged;
