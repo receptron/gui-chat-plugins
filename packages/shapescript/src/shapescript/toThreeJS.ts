@@ -83,6 +83,7 @@ import {
 } from "./meshValues";
 import { disposeObject3D, disposeScratch } from "./dispose";
 import { minkowskiSum } from "./minkowski";
+import { at, defined } from "./at";
 
 /** What a conversion reports besides geometry. Stored on the root group's
  *  `userData` so both viewers and the tool result can read it. */
@@ -1294,7 +1295,7 @@ export class Converter {
       node,
     ]);
     if (geometries.length === 0) {
-      if (captured.length === 1) return captured[0]!;
+      if (captured.length === 1) return at(captured, 0);
       if (captured.length > 1) return captured;
       throw new Error("The shape used as a value produced nothing");
     }
@@ -1332,7 +1333,7 @@ export class Converter {
       }
       if (captured.length === 0)
         throw new Error(`Function \`${name}\` produced no value`);
-      return captured.length === 1 ? captured[0]! : captured;
+      return captured.length === 1 ? at(captured, 0) : captured;
     });
   }
 
@@ -1817,7 +1818,7 @@ export class Converter {
             const outside = evaluate(result, brush, HOLLOW_SUBTRACTION);
             const inside = evaluate(result, brush, HOLLOW_INTERSECTION);
             inside.material = Array.isArray(brush.material)
-              ? brush.material[0]!
+              ? at(brush.material, 0)
               : brush.material;
             inside.geometry.clearGroups();
             inside.geometry.addGroup(
@@ -2347,14 +2348,14 @@ export class Converter {
             for (const part of parts)
               this.chargeEstimate(part.getAttribute("position").count);
             const geometry =
-              parts.length === 1 ? parts[0]! : mergeMeshGeometries(parts);
+              parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
             if (parts.length > 1) parts.forEach((part) => part.dispose());
             return geometry;
           },
         );
       }
       return this.withPathDetail(() => {
-        const path = node.path!;
+        const path = defined(node.path, "the fill's path");
         const points = this.collectPathPoints(path);
         const shape = this.shapeFromPathPoints(points);
         const curveSegments = Math.max(1, Math.floor(this.detailLevel / 4));
@@ -2411,7 +2412,7 @@ export class Converter {
           loftGeometry(sweepRings(section, points, closed), closed),
         );
         const geometry =
-          parts.length === 1 ? parts[0]! : mergeMeshGeometries(parts);
+          parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
         if (parts.length > 1) parts.forEach((part) => part.dispose());
         return geometry;
       },
@@ -2444,7 +2445,7 @@ export class Converter {
       if (meshes.length + lines.length !== 1)
         throw new Error("`along` needs exactly one path");
       const line = lines[0];
-      const points = line ? linePoints(line) : profileOf(meshes[0]!);
+      const points = line ? linePoints(line) : profileOf(at(meshes, 0));
       if (points.length < 2)
         throw new Error("`along` needs a path with at least two points");
       return { points, closed: line === undefined };
@@ -2970,7 +2971,7 @@ export class Converter {
     let offset = 0;
     for (const ring of layout.rings) {
       ring.forEach((point, i) => {
-        const following = ring[(i + 1) % ring.length]!;
+        const following = at(ring, (i + 1) % ring.length);
         positions.set(
           [point.x, point.y, 0, following.x, following.y, 0],
           offset,
@@ -3034,8 +3035,9 @@ export class Converter {
     return this.buildFromChildren(node, (meshes) => {
       if (meshes.length < 2)
         throw new Error("`minkowski` needs at least two shapes");
-      const [first, ...rest] = meshes;
-      let geometry = first!.geometry.clone().applyMatrix4(first!.matrixWorld);
+      const [head, ...rest] = meshes;
+      const first = defined(head, "minkowski's first shape");
+      let geometry = first.geometry.clone().applyMatrix4(first.matrixWorld);
       const identity = new THREE.Matrix4();
       try {
         for (const mesh of rest) {
@@ -3055,13 +3057,13 @@ export class Converter {
         throw error;
       }
       this.chargeEstimate(geometry.getAttribute("position").count);
-      const color = uniformColorOf(first!);
+      const color = uniformColorOf(first);
       if (color)
         geometry.setAttribute(
           "color",
           new THREE.Float32BufferAttribute(
             new Float32Array(geometry.getAttribute("position").count * 3).map(
-              (_, i) => color[i % 3]!,
+              (_, i) => at(color, i % 3),
             ),
             3,
           ),
@@ -3266,7 +3268,7 @@ function coloredClone(mesh: THREE.Mesh): THREE.BufferGeometry {
     geometry.setAttribute(
       "color",
       new THREE.Float32BufferAttribute(
-        new Float32Array(count * 3).map((_, i) => color[i % 3]!),
+        new Float32Array(count * 3).map((_, i) => at(color, i % 3)),
         3,
       ),
     );
@@ -3334,7 +3336,7 @@ function mergeMeshGeometries(
     return flat;
   });
   const merged =
-    prepared.length === 1 ? prepared[0]! : mergeGeometries(prepared);
+    prepared.length === 1 ? at(prepared, 0) : mergeGeometries(prepared);
   if (!merged) throw new Error("Could not combine the shapes into one mesh");
   if (prepared.length > 1) prepared.forEach((part) => part.dispose());
   return merged;

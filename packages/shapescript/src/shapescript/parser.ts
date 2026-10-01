@@ -36,6 +36,7 @@ import {
   ShapePrimitive,
 } from "./types";
 import { BUILT_IN_FUNCTION_NAMES } from "./evaluator";
+import { at } from "./at";
 
 /** Blocks upstream renders through its own viewer and this renderer skips with
  *  a warning: a camera only frames the upstream app, and lights are not
@@ -719,7 +720,7 @@ function hexColorExpression(digits: string): Expression {
   const wide = digits.length >= 6;
   const channels: number[] = [];
   for (let i = 0; i < digits.length; i += wide ? 2 : 1) {
-    const pair = wide ? digits.slice(i, i + 2) : digits[i]! + digits[i]!;
+    const pair = wide ? digits.slice(i, i + 2) : at(digits, i) + at(digits, i);
     channels.push(parseInt(pair, 16) / 255);
   }
   if (channels.length === 3) channels.push(1);
@@ -955,7 +956,7 @@ export class Parser {
   private stripNewlinesInParens(): void {
     let depth = 1;
     for (let i = this.pos; i < this.tokens.length && depth > 0;) {
-      const token = this.tokens[i]!;
+      const token = at(this.tokens, i);
       if (token.type === TokenType.EOF) break;
       if (token.type === TokenType.LPAREN) depth++;
       else if (token.type === TokenType.RPAREN) depth--;

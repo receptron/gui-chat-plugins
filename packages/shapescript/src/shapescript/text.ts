@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import typeface from "./fonts/helvetiker_regular.typeface.json";
+import { at, defined } from "./at";
 
 /** Text layout for the `text` command.
  *
@@ -89,7 +90,7 @@ function outlineOf(glyph: Glyph, curveSegments: number): THREE.Vector2[][] {
 /** Drop a final point that repeats the first: rings are implicitly closed. */
 function closedRing(points: THREE.Vector2[]): THREE.Vector2[] {
   const last = points[points.length - 1];
-  return points.length > 1 && last && last.equals(points[0]!)
+  return points.length > 1 && last && last.equals(at(points, 0))
     ? points.slice(0, -1)
     : points;
 }
@@ -97,8 +98,8 @@ function closedRing(points: THREE.Vector2[]): THREE.Vector2[] {
 function ringArea(ring: readonly THREE.Vector2[]): number {
   let area = 0;
   for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]!,
-      b = ring[(i + 1) % ring.length]!;
+    const a = at(ring, i),
+      b = at(ring, (i + 1) % ring.length);
     area += a.x * b.y - b.x * a.y;
   }
   return area / 2;
@@ -110,8 +111,8 @@ function containsPoint(
 ): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!,
-      b = ring[j]!;
+    const a = at(ring, i),
+      b = at(ring, j);
     if (
       a.y > point.y !== b.y > point.y &&
       point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
@@ -133,7 +134,7 @@ export function shapesFromRings(
   );
   const ancestors = usable.map((ring, i) =>
     usable.flatMap((other, j) =>
-      j !== i && containsPoint(other, ring[0]!) ? [j] : [],
+      j !== i && containsPoint(other, at(ring, 0)) ? [j] : [],
     ),
   );
   const shapes = new Map<number, THREE.Shape>();
@@ -143,7 +144,7 @@ export function shapesFromRings(
   ancestors.forEach((list, i) => {
     if (list.length % 2 === 0) return;
     // The innermost outline around this hole: the ancestor with one fewer ancestor.
-    const outer = list.find((j) => ancestors[j]!.length === list.length - 1);
+    const outer = list.find((j) => at(ancestors, j).length === list.length - 1);
     if (outer !== undefined)
       shapes.get(outer)?.holes.push(new THREE.Path(usable[i]));
   });
@@ -156,7 +157,9 @@ const glyphFor = (char: string): Glyph | undefined => glyphs[char];
 function widthOf(text: string): number {
   let width = 0;
   for (const char of text)
-    width += (glyphFor(char) ?? glyphFor(FALLBACK_GLYPH))!.ha * UNIT;
+    width +=
+      defined(glyphFor(char) ?? glyphFor(FALLBACK_GLYPH), "the fallback glyph")
+        .ha * UNIT;
   return width;
 }
 
@@ -210,7 +213,7 @@ export function layoutText(
       let glyph = glyphFor(char);
       if (!glyph) {
         layout.missing.push(char);
-        glyph = glyphFor(FALLBACK_GLYPH)!;
+        glyph = defined(glyphFor(FALLBACK_GLYPH), "the fallback glyph");
       }
       const key = glyph === glyphFor(char) ? char : FALLBACK_GLYPH;
       const outline =

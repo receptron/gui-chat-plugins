@@ -20,13 +20,5 @@ export default [
       ],
     },
   },
-  {
-    // Moved from MulmoClaude (whose config does not enable this rule) with its
-    // non-null assertions intact: 193 sites in the parser, evaluator, CSG and
-    // tests. Rewriting them belongs in a change of its own, not in the move.
-    // Delete this entry once packages/shapescript has none left.
-    files: ["packages/shapescript/**/*.ts"],
-    rules: { "@typescript-eslint/no-non-null-assertion": "off" },
-  },
   eslintConfigPrettier,
 ];

@@ -37,6 +37,7 @@ import {
   type ShapePostDoc,
   type ShapePostPatch,
 } from "../src/core/index";
+import { at, defined } from "../src/shapescript/at";
 
 const CUBE = "cube { size 1 }";
 const CUBE_2 = "cube { size 2 }";
@@ -142,7 +143,11 @@ function fakeGallery(
     listPosts: async (uid, limit) =>
       [...posts.entries()]
         .filter(([, stored]) => stored.uid === uid)
-        .sort(([a], [b]) => stamps.get(b)!.getTime() - stamps.get(a)!.getTime())
+        .sort(
+          ([a], [b]) =>
+            defined(stamps.get(b), "stamps.get(b)").getTime() -
+            defined(stamps.get(a), "stamps.get(a)").getTime(),
+        )
         .slice(0, limit)
         .map(([id, stored]) => ({ id, data: withStamps(id, stored) })),
     readScript: async (ownerUid, id, scriptId) => {
@@ -411,7 +416,7 @@ describe("manageShapeScript tool", () => {
       assert.equal(result.action, "publish");
       if (result.action !== "publish") return;
       assert.equal(posts.size, 1);
-      const [id, doc] = [...posts.entries()][0]!;
+      const [id, doc] = at([...posts.entries()], 0);
       assert.equal(result.id, id);
       assert.equal(result.url, shapePostUrl(id));
       assert.match(
@@ -450,7 +455,7 @@ describe("manageShapeScript tool", () => {
         published: false,
       });
       if (result.action !== "publish") return assert.fail(result.action);
-      const doc = [...posts.values()][0]!;
+      const doc = at([...posts.values()], 0);
       assert.equal(scripts[0]?.script, CUBE);
       assert.equal(doc.scriptId, "script-1");
       assert.equal(doc.published, false);
@@ -558,7 +563,7 @@ describe("manageShapeScript tool", () => {
         /permission-denied/,
       );
       assert.equal(uploads.length, 1);
-      const id = uploads[0]!.id;
+      const id = at(uploads, 0).id;
       assert.deepEqual(deleted, [
         { id, objectId: "script-1" },
         { id, objectId: "obj-1" },
@@ -661,7 +666,7 @@ describe("manageShapeScript tool", () => {
       assert.equal(result.url, shapePostUrl(id));
       assert.match(result.message, /^Updated: "Lamp" is at https:/);
       assert.equal(posts.size, 1);
-      const doc = posts.get(id)!;
+      const doc = defined(posts.get(id), "posts.get(id)");
       assert.deepEqual(
         scripts.map((entry) => entry.script),
         [CUBE, CUBE_2],
@@ -706,10 +711,10 @@ describe("manageShapeScript tool", () => {
       const { context, posts, patches, id } = await seeded();
       await update(context, { id, description: "", aiModel: "" });
       assert.deepEqual(patches.at(-1), { description: "", aiModel: "" });
-      assert.equal(posts.get(id)!.description, "");
-      assert.equal(posts.get(id)!.aiModel, "");
+      assert.equal(defined(posts.get(id), "posts.get(id)").description, "");
+      assert.equal(defined(posts.get(id), "posts.get(id)").aiModel, "");
       await update(context, { id, title: "Lamp 2" });
-      assert.equal(posts.get(id)!.description, "");
+      assert.equal(defined(posts.get(id), "posts.get(id)").description, "");
       // An empty title is not a clear: the gallery requires one.
       await assert.rejects(
         update(context, { id, title: "" }),
@@ -725,7 +730,7 @@ describe("manageShapeScript tool", () => {
         keywords: ["lamp", "desk"],
         published: false,
       });
-      const doc = posts.get(id)!;
+      const doc = defined(posts.get(id), "posts.get(id)");
       assert.equal(scripts.length, 1);
       assert.deepEqual(deleted, []);
       assert.equal(doc.scriptId, "script-1");
@@ -751,7 +756,10 @@ describe("manageShapeScript tool", () => {
           false,
           JSON.stringify(patch),
         );
-      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").license,
+        SHAPE_LICENSE,
+      );
     });
 
     it("makes a draft public only with the user's agreement, and sends the grant with that one write", async () => {
@@ -771,13 +779,16 @@ describe("manageShapeScript tool", () => {
       // Still a draft: an edit that leaves it one needs no agreement and grants nothing.
       await update(context, { id, title: "Draft 2" });
       assert.deepEqual(patches.at(-1), { title: "Draft 2" });
-      assert.equal(posts.get(id)!.license, null);
+      assert.equal(defined(posts.get(id), "posts.get(id)").license, null);
       await update(context, { id, published: true, acceptLicense: true });
       assert.deepEqual(patches.at(-1), {
         license: SHAPE_LICENSE,
         published: true,
       });
-      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").license,
+        SHAPE_LICENSE,
+      );
     });
 
     // A post from before the gallery asked (or one an older client published): public, but
@@ -785,7 +796,10 @@ describe("manageShapeScript tool", () => {
     // asks, and so does the tool; unpublishing it needs nothing.
     it("asks for agreement before editing a public post that has no license yet, and grants it then", async () => {
       const { context, writer, posts, patches, scripts, id } = await seeded();
-      posts.set(id, { ...posts.get(id)!, license: null });
+      posts.set(id, {
+        ...defined(posts.get(id), "posts.get(id)"),
+        license: null,
+      });
       await assert.rejects(
         update(context, { id, script: CUBE_2 }),
         new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)),
@@ -793,7 +807,7 @@ describe("manageShapeScript tool", () => {
       assert.equal(scripts.length, 1);
       await update(context, { id, published: false });
       assert.deepEqual(patches.at(-1), { published: false });
-      assert.equal(posts.get(id)!.license, null);
+      assert.equal(defined(posts.get(id), "posts.get(id)").license, null);
       await update(context, {
         id,
         published: true,
@@ -805,7 +819,10 @@ describe("manageShapeScript tool", () => {
         title: "Lamp 2",
         published: true,
       });
-      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").license,
+        SHAPE_LICENSE,
+      );
       // Another account's post is refused as such before any license question.
       writer.uid = "u-bob";
       await assert.rejects(
@@ -826,7 +843,10 @@ describe("manageShapeScript tool", () => {
         /published by another account; only its publisher can update it/,
       );
       assert.equal(scripts.length, 1);
-      assert.equal(posts.get(id)!.scriptId, "script-1");
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").scriptId,
+        "script-1",
+      );
     });
 
     it("refuses a broken script or an over-limit field before anything is uploaded", async () => {
@@ -856,7 +876,10 @@ describe("manageShapeScript tool", () => {
         { id, objectId: "script-2" },
         { id, objectId: "obj-2" },
       ]);
-      assert.equal(posts.get(id)!.scriptId, "script-1");
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").scriptId,
+        "script-1",
+      );
     });
 
     // CodeRabbit on #3158: two edits racing on one post. The write is conditional on the
@@ -869,7 +892,7 @@ describe("manageShapeScript tool", () => {
         const snapshot = await slowRead(postId);
         // Another client's edit lands between this read and the write.
         posts.set(id, {
-          ...posts.get(id)!,
+          ...defined(posts.get(id), "posts.get(id)"),
           scriptId: "script-other",
           thumbnailId: "obj-other",
         });
@@ -883,7 +906,10 @@ describe("manageShapeScript tool", () => {
         { id, objectId: "script-2" },
         { id, objectId: "obj-2" },
       ]);
-      assert.equal(posts.get(id)!.scriptId, "script-other");
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").scriptId,
+        "script-other",
+      );
     });
 
     // CodeRabbit on #3180: whether the patch carries a grant was decided from the read's
@@ -891,11 +917,17 @@ describe("manageShapeScript tool", () => {
     // a draft, which records none — so the published state is part of the precondition.
     it("refuses a granting update when the post was unpublished meanwhile, so no draft is licensed", async () => {
       const { context, writer, posts, patches, id } = await seeded();
-      posts.set(id, { ...posts.get(id)!, license: null });
+      posts.set(id, {
+        ...defined(posts.get(id), "posts.get(id)"),
+        license: null,
+      });
       const slowRead = writer.readPost;
       writer.readPost = async (postId) => {
         const snapshot = await slowRead(postId);
-        posts.set(id, { ...posts.get(id)!, published: false });
+        posts.set(id, {
+          ...defined(posts.get(id), "posts.get(id)"),
+          published: false,
+        });
         return snapshot;
       };
       await assert.rejects(
@@ -903,14 +935,17 @@ describe("manageShapeScript tool", () => {
         new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)),
       );
       assert.deepEqual(patches, []);
-      assert.equal(posts.get(id)!.license, null);
+      assert.equal(defined(posts.get(id), "posts.get(id)").license, null);
     });
   });
 
   describe("delete", () => {
     it("removes the user's own post, then every object under it — the reference photos of a web-editor post included", async () => {
       const { context, posts, deleted, id } = await seeded();
-      posts.set(id, { ...posts.get(id)!, photoIds: ["p-1", "p-2"] });
+      posts.set(id, {
+        ...defined(posts.get(id), "posts.get(id)"),
+        photoIds: ["p-1", "p-2"],
+      });
       const result = await executeManageShapeScript(context, {
         action: "delete",
         id,
@@ -956,7 +991,7 @@ describe("manageShapeScript tool", () => {
       writer.readPost = async (postId) => {
         const snapshot = await slowRead(postId);
         posts.set(id, {
-          ...posts.get(id)!,
+          ...defined(posts.get(id), "posts.get(id)"),
           scriptId: "script-other",
           thumbnailId: "obj-other",
         });
@@ -966,7 +1001,10 @@ describe("manageShapeScript tool", () => {
         executeManageShapeScript(context, { action: "delete", id }),
         new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)),
       );
-      assert.equal(posts.get(id)!.scriptId, "script-other");
+      assert.equal(
+        defined(posts.get(id), "posts.get(id)").scriptId,
+        "script-other",
+      );
       assert.deepEqual(deleted, []);
     });
 
@@ -975,11 +1013,17 @@ describe("manageShapeScript tool", () => {
     // is the version whose objects go.
     it("removes the objects of the document as deleted — a reference photo swapped in meanwhile included", async () => {
       const { context, writer, posts, deleted, id } = await seeded();
-      posts.set(id, { ...posts.get(id)!, photoIds: ["p-old"] });
+      posts.set(id, {
+        ...defined(posts.get(id), "posts.get(id)"),
+        photoIds: ["p-old"],
+      });
       const slowRead = writer.readPost;
       writer.readPost = async (postId) => {
         const snapshot = await slowRead(postId);
-        posts.set(id, { ...posts.get(id)!, photoIds: ["p-new"] });
+        posts.set(id, {
+          ...defined(posts.get(id), "posts.get(id)"),
+          photoIds: ["p-new"],
+        });
         return snapshot;
       };
       await executeManageShapeScript(context, { action: "delete", id });
@@ -1062,7 +1106,10 @@ describe("manageShapeScript tool", () => {
       assert.deepEqual(scriptReads, [
         { ownerUid: "u-alice", id, scriptId: "script-1" },
       ]);
-      posts.set(id, { ...posts.get(id)!, published: false });
+      posts.set(id, {
+        ...defined(posts.get(id), "posts.get(id)"),
+        published: false,
+      });
       await assert.rejects(
         executeManageShapeScript(context, { action: "get", id }),
         /No gallery post has the id .* another account's draft/,
@@ -1083,7 +1130,12 @@ describe("manageShapeScript tool", () => {
         /^artifacts\/shapes\/lamp-\d+-[0-9a-f]{8}\.shape$/,
       );
       assert.equal(
-        store.get(result.savedPath!.replace(/^artifacts\//, "")),
+        store.get(
+          defined(result.savedPath, "result.savedPath").replace(
+            /^artifacts\//,
+            "",
+          ),
+        ),
         CUBE,
       );
       assert.equal(JSON.parse(result.message).savedPath, result.savedPath);
@@ -1134,11 +1186,14 @@ describe("manageShapeScript tool", () => {
         ],
       );
       assert.equal(
-        result.posts[0]!.id,
+        at(result.posts, 0).id,
         third.action === "publish" ? third.id : "",
       );
-      assert.equal(result.posts[2]!.id, id);
-      assert.equal(result.posts[0]!.url, shapePostUrl(result.posts[0]!.id));
+      assert.equal(at(result.posts, 2).id, id);
+      assert.equal(
+        at(result.posts, 0).url,
+        shapePostUrl(at(result.posts, 0).id),
+      );
       const parsed = JSON.parse(result.message);
       assert.equal(parsed.count, 3);
       assert.deepEqual(parsed.posts, result.posts);

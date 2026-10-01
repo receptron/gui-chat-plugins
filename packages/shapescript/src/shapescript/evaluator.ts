@@ -21,6 +21,7 @@ import {
 } from "./meshValues";
 import type * as THREE from "three";
 import { insetGeometry } from "./minkowski";
+import { at } from "./at";
 
 export type {
   MeshValue,
@@ -326,20 +327,20 @@ function objectMember(value: ObjectValue, member: string): Value | undefined {
           return centerOf(value.points);
         case "bounds":
           return boundsOf(value.points);
-        case "triangles":
+        case "triangles": {
+          const colors = value.colors;
           return triangulatePolygon(value.points).map(
             (triangle): PolygonValue => ({
               kind: "polygon",
-              points: triangle.map((i) => value.points[i]!),
-              ...(value.colors
+              points: triangle.map((i) => at(value.points, i)),
+              ...(colors
                 ? {
-                    colors: triangle.map(
-                      (i) => value.colors![i] ?? value.colors![0]!,
-                    ),
+                    colors: triangle.map((i) => colors[i] ?? at(colors, 0)),
                   }
                 : {}),
             }),
           );
+        }
         default:
           return undefined;
       }
@@ -394,10 +395,16 @@ function sequenceMember(
     return typeof value === "string" ? value.slice(1) : value.slice(1);
   if (member === "allButLast")
     return typeof value === "string" ? value.slice(0, -1) : value.slice(0, -1);
-  if (Array.isArray(value) && member in hsbMembers && value.length >= 3) {
-    return rgbToHsb(toNumber(value[0]), toNumber(value[1]), toNumber(value[2]))[
-      hsbMembers[member]!
-    ];
+  // Own keys only: `member in hsbMembers` also matched inherited names such
+  // as `toString`, and answered undefined for them.
+  const hsbIndex = Object.hasOwn(hsbMembers, member)
+    ? hsbMembers[member]
+    : undefined;
+  if (Array.isArray(value) && hsbIndex !== undefined && value.length >= 3) {
+    return at(
+      rgbToHsb(toNumber(value[0]), toNumber(value[1]), toNumber(value[2])),
+      hsbIndex,
+    );
   }
   const index =
     ordinalIndices[member] ??
@@ -562,7 +569,7 @@ function contains(needle: Value, haystack: Value): boolean {
 export function valuesEqual(a: Value, b: Value): boolean {
   if (Array.isArray(a) && Array.isArray(b))
     return (
-      a.length === b.length && a.every((item, i) => valuesEqual(item, b[i]!))
+      a.length === b.length && a.every((item, i) => valuesEqual(item, at(b, i)))
     );
   return a === b;
 }
@@ -921,7 +928,7 @@ export class Evaluator {
           index >= value.length
         )
           throw new Error(`Subscript out of range: ${String(index)}`);
-        return value[index < 0 ? value.length + index : index]!;
+        return at(value, index < 0 ? value.length + index : index);
       }
 
       default:
@@ -1053,7 +1060,7 @@ export class Evaluator {
   ): T {
     this.symbols.pushScope();
     try {
-      params.forEach((param, i) => this.symbols.set(param, args[i]!));
+      params.forEach((param, i) => this.symbols.set(param, at(args, i)));
       return run();
     } finally {
       this.symbols.popScope();

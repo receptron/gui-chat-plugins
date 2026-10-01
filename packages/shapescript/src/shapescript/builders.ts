@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { at, defined, triangleOf } from "./at";
 
 /** Read an ordered perimeter from a triangulated planar profile. Interior
  * vertices (e.g. the centre of CircleGeometry) must never enter a loft ring. */
@@ -32,12 +33,12 @@ export function boundaryLoops(mesh: THREE.Mesh): THREE.Vector3[][] {
   const edges = new Map<string, { a: number; b: number; count: number }>();
   const count = index?.count ?? positions.count;
   for (let i = 0; i < count; i += 3) {
-    const triangle = [0, 1, 2].map(
-      (j) => ids[index ? index.getX(i + j) : i + j]!,
+    const triangle = [0, 1, 2].map((j) =>
+      at(ids, index ? index.getX(i + j) : i + j),
     );
     for (let j = 0; j < 3; j++) {
-      const a = triangle[j]!,
-        b = triangle[(j + 1) % 3]!;
+      const a = at(triangle, j),
+        b = at(triangle, (j + 1) % 3);
       if (a === b) continue;
       const key = a < b ? `${a},${b}` : `${b},${a}`;
       const edge = edges.get(key);
@@ -59,7 +60,7 @@ export function boundaryLoops(mesh: THREE.Mesh): THREE.Vector3[][] {
     let current = start;
     do {
       visited.add(current);
-      ring.push(vertices[current]!);
+      ring.push(at(vertices, current));
       const following = next.get(current);
       if (following === undefined || ring.length > boundary.length)
         throw new Error("Profile perimeter is not a simple closed loop");
@@ -79,13 +80,13 @@ export function profileOf(mesh: THREE.Mesh): THREE.Vector3[] {
     throw new Error(
       "Profiles with holes or multiple perimeters are not supported by this builder",
     );
-  return loops[0]!;
+  return at(loops, 0);
 }
 
 function resample(ring: THREE.Vector3[], count: number): THREE.Vector3[] {
   if (ring.length === count) return ring.map((point) => point.clone());
   const lengths = ring.map((point, i) =>
-    point.distanceTo(ring[(i + 1) % ring.length]!),
+    point.distanceTo(at(ring, (i + 1) % ring.length)),
   );
   const perimeter = lengths.reduce((a, b) => a + b, 0);
   if (perimeter < 1e-10) throw new Error("Loft profile has zero perimeter");
@@ -93,12 +94,14 @@ function resample(ring: THREE.Vector3[], count: number): THREE.Vector3[] {
     start = 0;
   return Array.from({ length: count }, (_, i) => {
     const distance = (perimeter * i) / count;
-    while (edge < lengths.length - 1 && start + lengths[edge]! < distance)
-      start += lengths[edge++]!;
-    return ring[edge]!.clone().lerp(
-      ring[(edge + 1) % ring.length]!,
-      (distance - start) / (lengths[edge] || 1),
-    );
+    while (edge < lengths.length - 1 && start + at(lengths, edge) < distance)
+      start += at(lengths, edge++);
+    return at(ring, edge)
+      .clone()
+      .lerp(
+        at(ring, (edge + 1) % ring.length),
+        (distance - start) / (lengths[edge] || 1),
+      );
   });
 }
 
@@ -107,8 +110,8 @@ function resample(ring: THREE.Vector3[], count: number): THREE.Vector3[] {
 function ringNormal(ring: THREE.Vector3[]): THREE.Vector3 {
   const normal = new THREE.Vector3();
   for (let i = 0; i < ring.length; i++) {
-    const current = ring[i]!,
-      next = ring[(i + 1) % ring.length]!;
+    const current = at(ring, i),
+      next = at(ring, (i + 1) % ring.length);
     normal.x += (current.y - next.y) * (current.z + next.z);
     normal.y += (current.z - next.z) * (current.x + next.x);
     normal.z += (current.x - next.x) * (current.y + next.y);
@@ -124,8 +127,8 @@ function ringNormal(ring: THREE.Vector3[]): THREE.Vector3 {
  *  rest, leaving a solid that encloses no volume and is then refused. */
 function alignWinding(rings: THREE.Vector3[][]): void {
   for (let r = 1; r < rings.length; r++) {
-    if (ringNormal(rings[r]!).dot(ringNormal(rings[r - 1]!)) < 0)
-      rings[r]!.reverse();
+    if (ringNormal(at(rings, r)).dot(ringNormal(at(rings, r - 1))) < 0)
+      at(rings, r).reverse();
   }
 }
 
@@ -158,12 +161,12 @@ export function loftGeometry(
     }
   }
   for (const end of closed ? [] : [0, rings.length - 1]) {
-    const ring = rings[end]!;
-    const origin = ring[0]!;
-    const u = ring[1]!.clone().sub(origin).normalize();
+    const ring = at(rings, end);
+    const origin = at(ring, 0);
+    const u = at(ring, 1).clone().sub(origin).normalize();
     const normal = new THREE.Vector3();
     for (let i = 2; i < count && normal.lengthSq() < 1e-12; i++)
-      normal.crossVectors(u, ring[i]!.clone().sub(origin));
+      normal.crossVectors(u, at(ring, i).clone().sub(origin));
     if (normal.lengthSq() < 1e-12)
       throw new Error("Loft profile is degenerate");
     normal.normalize();
@@ -174,10 +177,11 @@ export function loftGeometry(
         throw new Error("Loft cross-sections must be planar");
       return new THREE.Vector2(relative.dot(u), relative.dot(v));
     });
-    for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(points, [])) {
+    for (const corners of THREE.ShapeUtils.triangulateShape(points, [])) {
+      const [a, b, c] = triangleOf(corners);
       const offset = end * count;
-      if (end === 0) indices.push(offset + c!, offset + b!, offset + a!);
-      else indices.push(offset + a!, offset + b!, offset + c!);
+      if (end === 0) indices.push(offset + c, offset + b, offset + a);
+      else indices.push(offset + a, offset + b, offset + c);
     }
   }
   const geometry = new THREE.BufferGeometry();
@@ -205,14 +209,14 @@ export function loftGeometry(
   const position = geometry.getAttribute("position");
   let volume = 0;
   for (let i = 0; i < indices.length; i += 3) {
-    const a = new THREE.Vector3().fromBufferAttribute(position, indices[i]!);
+    const a = new THREE.Vector3().fromBufferAttribute(position, at(indices, i));
     const b = new THREE.Vector3().fromBufferAttribute(
       position,
-      indices[i + 1]!,
+      at(indices, i + 1),
     );
     const c = new THREE.Vector3().fromBufferAttribute(
       position,
-      indices[i + 2]!,
+      at(indices, i + 2),
     );
     volume += a.dot(b.cross(c));
   }
@@ -222,7 +226,10 @@ export function loftGeometry(
   }
   if (volume < 0) {
     for (let i = 0; i < indices.length; i += 3)
-      [indices[i + 1], indices[i + 2]] = [indices[i + 2]!, indices[i + 1]!];
+      [indices[i + 1], indices[i + 2]] = [
+        at(indices, i + 2),
+        at(indices, i + 1),
+      ];
     geometry.setIndex(indices);
   }
   geometry.computeVertexNormals();
@@ -241,12 +248,16 @@ export function sweepRings(
   const up = pathUp(path);
   return path.map((origin, i) => {
     const before =
-      closed || i > 0 ? path[(i - 1 + path.length) % path.length]! : undefined;
+      closed || i > 0
+        ? at(path, (i - 1 + path.length) % path.length)
+        : undefined;
     const after =
-      closed || i < path.length - 1 ? path[(i + 1) % path.length]! : undefined;
+      closed || i < path.length - 1
+        ? at(path, (i + 1) % path.length)
+        : undefined;
     const incoming = before
       ? origin.clone().sub(before).normalize()
-      : after!.clone().sub(origin).normalize();
+      : defined(after, "a path's second point").clone().sub(origin).normalize();
     const outgoing = after ? after.clone().sub(origin).normalize() : incoming;
     const tangent = incoming.clone().add(outgoing);
     if (tangent.lengthSq() < 1e-12) tangent.copy(incoming);
@@ -281,7 +292,10 @@ function pathUp(path: THREE.Vector3[]): THREE.Vector3 {
   const normal = ringNormal(path);
   if (normal.lengthSq() > 1e-12) return normal.normalize();
   return perpendicularTo(
-    path[path.length - 1]!.clone().sub(path[0]!).normalize(),
+    at(path, path.length - 1)
+      .clone()
+      .sub(at(path, 0))
+      .normalize(),
   );
 }
 
@@ -335,7 +349,7 @@ export function ribbonGeometry(
   front.computeVertexNormals();
   const back = front.clone();
   back.setIndex(
-    indices.map((_, i) => indices[i - (i % 3) + ((3 - (i % 3)) % 3)]!),
+    indices.map((_, i) => at(indices, i - (i % 3) + ((3 - (i % 3)) % 3))),
   );
   back.computeVertexNormals();
   const both = mergeGeometries([front, back]);

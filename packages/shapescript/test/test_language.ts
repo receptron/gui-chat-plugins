@@ -6,6 +6,7 @@ import { parseShapeScript } from "../src/shapescript/parser";
 import { astToThreeJS, sceneInfoOf } from "../src/shapescript/toThreeJS";
 import { disposeObject3D } from "../src/shapescript/dispose";
 import { Evaluator } from "../src/shapescript/evaluator";
+import { at, defined } from "../src/shapescript/at";
 
 const context = {} as Parameters<typeof executePresentShapeScript>[0];
 function withMesh(script: string, check: (mesh: THREE.Mesh) => void) {
@@ -16,7 +17,7 @@ function withMesh(script: string, check: (mesh: THREE.Mesh) => void) {
       if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh);
     });
     assert.equal(meshes.length, 1);
-    check(meshes[0]!);
+    check(at(meshes, 0));
   } finally {
     disposeObject3D(group);
   }
@@ -32,7 +33,7 @@ function volume(mesh: THREE.Mesh): number {
         index ? index.getX(i + j) : i + j,
       ),
     );
-    value += a!.dot(b!.cross(c!)) / 6;
+    value += defined(a, "a").dot(defined(b, "b").cross(defined(c, "c"))) / 6;
   }
   return value;
 }
@@ -140,9 +141,10 @@ describe("geometry builders", () => {
           mesh.geometry.groups
             .filter((g) => g.count > 0)
             .map((g) =>
-              (mesh.material as THREE.MeshStandardMaterial[])[
-                g.materialIndex ?? 0
-              ]!.color.getHexString(),
+              at(
+                mesh.material as THREE.MeshStandardMaterial[],
+                g.materialIndex ?? 0,
+              ).color.getHexString(),
             ),
         );
         assert.ok(colors.has("ff0000"));
@@ -757,7 +759,8 @@ describe("upstream conventions", () => {
     );
     try {
       assert.ok(
-        Math.abs(meshes[0]!.quaternion.dot(meshes[1]!.quaternion)) > 1 - 1e-9,
+        Math.abs(at(meshes, 0).quaternion.dot(at(meshes, 1).quaternion)) >
+          1 - 1e-9,
       );
     } finally {
       disposeObject3D(group);
@@ -811,7 +814,12 @@ describe("upstream conventions", () => {
       (mesh) => {
         mesh.geometry.computeBoundingBox();
         near(
-          [mesh.geometry.boundingBox!.min.x, mesh.geometry.boundingBox!.max.x],
+          [
+            defined(mesh.geometry.boundingBox, "mesh.geometry.boundingBox").min
+              .x,
+            defined(mesh.geometry.boundingBox, "mesh.geometry.boundingBox").max
+              .x,
+          ],
           [5, 6],
         );
       },
@@ -826,7 +834,10 @@ describe("upstream conventions", () => {
       "extrude path {\n scale rnd\n point 0 0\n point 1 0\n point 1 1\n point 0 1\n point 0 0\n}",
       (mesh) => {
         mesh.geometry.computeBoundingBox();
-        const box = mesh.geometry.boundingBox!;
+        const box = defined(
+          mesh.geometry.boundingBox,
+          "mesh.geometry.boundingBox",
+        );
         near([box.max.x, box.max.y], [upstreamRnd(0), upstreamRnd(0)]);
       },
     );
@@ -856,7 +867,10 @@ describe("upstream conventions", () => {
       "fill path {\n point -1 -1\n curve 0 1\n point 1 -1\n point -1 -1\n}",
       (mesh) => {
         mesh.geometry.computeBoundingBox();
-        const top = mesh.geometry.boundingBox!.max.y;
+        const top = defined(
+          mesh.geometry.boundingBox,
+          "mesh.geometry.boundingBox",
+        ).max.y;
         assert.ok(top > -0.5 && top < 0.5, `${top}`);
       },
     );
@@ -874,7 +888,7 @@ describe("upstream conventions", () => {
     );
     try {
       near(
-        [meshes[0]!.position.x, meshes[1]!.position.x],
+        [at(meshes, 0).position.x, at(meshes, 1).position.x],
         [upstreamRnd(57), upstreamRnd(0)],
       );
     } finally {
@@ -886,7 +900,7 @@ describe("upstream conventions", () => {
     );
     try {
       near(
-        [shared.meshes[0]!.position.x, shared.meshes[1]!.position.x],
+        [at(shared.meshes, 0).position.x, at(shared.meshes, 1).position.x],
         [upstreamRnd(0), upstreamRnd(upstreamRnd(0) * 2 ** 32)],
       );
     } finally {
@@ -993,7 +1007,12 @@ describe("path transform options", () => {
       (mesh) => {
         mesh.geometry.computeBoundingBox();
         near(
-          [mesh.geometry.boundingBox!.min.x, mesh.geometry.boundingBox!.max.x],
+          [
+            defined(mesh.geometry.boundingBox, "mesh.geometry.boundingBox").min
+              .x,
+            defined(mesh.geometry.boundingBox, "mesh.geometry.boundingBox").max
+              .x,
+          ],
           [5, 7],
         );
       },
@@ -1154,12 +1173,15 @@ describe("colours and materials", () => {
       200,
     );
     assert.match(
-      infoOf("camera {\n position 1 2 3\n orientation 0 0.5\n}\ncube")
-        .warnings[0]!,
+      at(
+        infoOf("camera {\n position 1 2 3\n orientation 0 0.5\n}\ncube")
+          .warnings,
+        0,
+      ),
       /camera/,
     );
     assert.match(
-      infoOf("light { position 1 1 1 }\ncube").warnings[0]!,
+      at(infoOf("light { position 1 1 1 }\ncube").warnings, 0),
       /light/,
     );
     // A block the script defines itself is invoked, not skipped.
@@ -1176,7 +1198,7 @@ describe("colours and materials", () => {
     ]);
     assert.equal(infoOf("cube").background, undefined);
     assert.match(
-      infoOf('background "stars.jpg"\ncube').warnings[0]!,
+      at(infoOf('background "stars.jpg"\ncube').warnings, 0),
       /background image "stars.jpg"/,
     );
     assert.throws(() => infoOf("group {\n background red\n cube\n}"), /root/);
@@ -1260,7 +1282,8 @@ describe("upstream shapes and paths", () => {
     const [stroke] = objectsOf(
       "opacity 0.5\ncolor #ff000080\npath {\n point 0 0\n point 1 0\n}",
     ) as THREE.Line[];
-    const lineMaterial = stroke!.material as THREE.LineBasicMaterial;
+    const lineMaterial = defined(stroke, "stroke")
+      .material as THREE.LineBasicMaterial;
     near(lineMaterial.color.toArray(), [1, 0, 0]);
     near([lineMaterial.opacity], [0.5 * (128 / 255)]);
     assert.ok(lineMaterial.transparent);
@@ -1976,7 +1999,7 @@ describe("minkowski, inset and extrude along", () => {
       });
       // The cube value and the inset value were released; the scene's clone was not.
       assert.ok(disposed.size >= 2, `${disposed.size} disposed`);
-      assert.equal(disposed.has(placed!.geometry), false);
+      assert.equal(disposed.has(defined(placed, "placed").geometry), false);
       disposeObject3D(group);
     }
     // A mesh value captured under a transform is a fresh clone: charged past
@@ -2155,7 +2178,10 @@ describe("text", () => {
       );
       area +=
         new THREE.Vector3()
-          .crossVectors(b!.clone().sub(a!), c!.clone().sub(a!))
+          .crossVectors(
+            defined(b, "b").clone().sub(defined(a, "a")),
+            defined(c, "c").clone().sub(defined(a, "a")),
+          )
           .length() / 2;
     }
     return area;
@@ -2218,16 +2244,20 @@ describe("text", () => {
   });
   it("breaks, spaces and wraps lines one unit apart", () => {
     const [two] = objectsOf('text {\n "H"\n "H"\n}');
-    near([boxOf(two!).min.y, boxOf(two!).max.y], [-1, CAP], 0.01);
+    near(
+      [boxOf(defined(two, "two")).min.y, boxOf(defined(two, "two")).max.y],
+      [-1, CAP],
+      0.01,
+    );
     const [escaped] = objectsOf('text "H\\nH"');
-    near([boxOf(escaped!).min.y], [-1], 0.01);
+    near([boxOf(defined(escaped, "escaped")).min.y], [-1], 0.01);
     const [spaced] = objectsOf('text {\n linespacing 0.5\n "H"\n "H"\n}');
-    near([boxOf(spaced!).min.y], [-1.5], 0.01);
+    near([boxOf(defined(spaced, "spaced")).min.y], [-1.5], 0.01);
     const [tight] = objectsOf('text {\n linespacing -0.5\n "H"\n "H"\n}');
-    near([boxOf(tight!).min.y], [-0.5], 0.01);
+    near([boxOf(defined(tight, "tight")).min.y], [-0.5], 0.01);
     // `wrapwidth` is in world units: "H H H" is wider than one unit, so three lines.
     const [wrapped] = objectsOf('text {\n wrapwidth 1\n "H H H"\n}');
-    near([boxOf(wrapped!).min.y], [-2], 0.01);
+    near([boxOf(defined(wrapped, "wrapped")).min.y], [-2], 0.01);
     assert.throws(
       () => objectsOf('text {\n wrapwidth 0\n "H"\n}'),
       /wrapwidth/,
@@ -2280,7 +2310,7 @@ describe("text", () => {
     );
     // A `name` property still names the object when nothing binds `name`.
     assert.equal(
-      objectsOf('text {\n name "caption"\n "H"\n}')[0]!.name,
+      at(objectsOf('text {\n name "caption"\n "H"\n}'), 0).name,
       "caption",
     );
     // Outline text takes its own material, as a filled one does.
@@ -2302,9 +2332,12 @@ describe("text", () => {
     );
   });
   it("keeps the built-in font, substitutes missing glyphs and bounds the text", () => {
-    assert.match(infoOf('font "Zapfino"\nfill text "Hi"').warnings[0]!, /font/);
     assert.match(
-      infoOf('fill text {\n font "Zapfino"\n "Hi"\n}').warnings[0]!,
+      at(infoOf('font "Zapfino"\nfill text "Hi"').warnings, 0),
+      /font/,
+    );
+    assert.match(
+      at(infoOf('fill text {\n font "Zapfino"\n "Hi"\n}').warnings, 0),
       /font/,
     );
     assert.deepEqual(
@@ -2317,7 +2350,7 @@ describe("text", () => {
       1,
     );
     assert.equal(objectsOf('define Font "F"\ntext {\n Font\n}').length, 1);
-    assert.match(infoOf('fill text "日本"').warnings[0]!, /"日" "本".*\?/);
+    assert.match(at(infoOf('fill text "日本"').warnings, 0), /"日" "本".*\?/);
     assert.equal(objectsOf('text "   "').length, 0);
     assert.throws(() => objectsOf('fill text "   "'), /Fill requires/);
     assert.throws(

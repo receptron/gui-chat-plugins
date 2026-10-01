@@ -22,6 +22,7 @@ import {
 import { parseShapeScript } from "../src/shapescript/parser";
 import { astToThreeJS } from "../src/shapescript/toThreeJS";
 import { disposeObject3D } from "../src/shapescript/dispose";
+import { at } from "../src/shapescript/at";
 
 const CUBE = "cube { size 1 }";
 const TWO = "cube { size 1 }\ncube {\n size 1\n position 3 0 0\n}";
@@ -84,7 +85,7 @@ describe("shapeScriptToGlb", () => {
 
   it("leaves a hidden subtree out", async () => {
     const group = astToThreeJS(parseShapeScript(TWO));
-    group.children[1]!.visible = false;
+    at(group.children, 1).visible = false;
     const json = glbJson(await sceneToGlb(group));
     assert.equal(json.meshes?.length, 1);
     disposeObject3D(group);
@@ -120,7 +121,7 @@ describe("shapeScriptToStl", () => {
 
   it("leaves a hidden subtree out", async () => {
     const group = astToThreeJS(parseShapeScript(TWO));
-    group.children[1]!.visible = false;
+    at(group.children, 1).visible = false;
     assert.equal(stlTriangles(await sceneToStl(group)), 12);
     disposeObject3D(group);
   });

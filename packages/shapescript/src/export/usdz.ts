@@ -101,9 +101,9 @@ function splitByColour(mesh: THREE.Mesh): THREE.Mesh[] {
       .toArray()
       .map((c) => Math.round(c * COLOUR_KEY_SCALE))
       .join(",");
-    (
-      groups.get(key) ?? groups.set(key, { colour, faces: [] }).get(key)!
-    ).faces.push(face);
+    let group = groups.get(key);
+    if (!group) groups.set(key, (group = { colour, faces: [] }));
+    group.faces.push(face);
   }
   const base = mesh.material as THREE.MeshStandardMaterial;
   const parts = [...groups.values()].map(({ colour, faces }) => {
