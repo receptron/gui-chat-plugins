@@ -137,6 +137,18 @@ export { samples } from "./samples";
 
 // Re-export ShapeScript utilities
 export { parseShapeScript } from "../shapescript/parser";
-export { astToThreeJS, sceneInfoOf } from "../shapescript/toThreeJS";
-export type { ShapeScriptSceneInfo } from "../shapescript/toThreeJS";
+export {
+  astToThreeJS,
+  sceneInfoOf,
+  enableManifoldCsg,
+  ensureCsgEngine,
+  setDefaultCsgEngine,
+  csgEngineFor,
+} from "../shapescript/toThreeJS";
+export type {
+  ShapeScriptSceneInfo,
+  CsgEngine,
+  CsgEvaluator,
+  CsgOperand,
+} from "../shapescript/toThreeJS";
 export type { SceneNode } from "../shapescript/types";

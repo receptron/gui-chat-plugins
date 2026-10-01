@@ -20,7 +20,11 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { astToThreeJS } from "../shapescript/toThreeJS";
+import {
+  astToThreeJS,
+  ensureCsgEngine,
+  type CsgEngine,
+} from "../shapescript/toThreeJS";
 import { parseShapeScript } from "../shapescript/parser";
 import { isRecord } from "../core/contract";
 import { buildRenderPage, type ViewAngle } from "./page";
@@ -77,6 +81,8 @@ export interface RenderShapeScriptOptions {
   height: number;
   zoom: number;
   projection: "perspective" | "orthographic";
+  /** The CSG engine for this render; the package default when omitted. */
+  csgEngine?: CsgEngine;
   /** Reported for a fault that did not fail the render — currently only a browser
    *  that would not close. Optional because this package has no logger of its own:
    *  each host passes its own, and one that passes none loses the line rather than
@@ -295,7 +301,11 @@ export async function renderShapeScriptSheet(
 
   // Build + serialise before launching a browser: a bad script should cost a
   // parse, not a browser start.
-  const model = astToThreeJS(parseShapeScript(options.script));
+  await ensureCsgEngine(options.csgEngine);
+  const model = astToThreeJS(
+    parseShapeScript(options.script),
+    options.csgEngine ? { csgEngine: options.csgEngine } : {},
+  );
   const sceneJson: unknown = model.toJSON();
   const html = buildRenderPage({ ...options, threeUrl: THREE_URL, sceneJson });
 

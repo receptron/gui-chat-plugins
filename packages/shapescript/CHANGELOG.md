@@ -1,5 +1,25 @@
 # Changelog
 
+## 8.2.0
+
+- **The preview's CSG can run through manifold** (phase 2 of the manifold proposal), behind an
+  opt-in: `csgEngine: "manifold"` on a conversion, or `enableManifoldCsg()` once for every
+  conversion. The default stays three-bvh-csg. With manifold, every CSG block's result is
+  watertight, each face keeps its operand's material (a cut face shows the cutter's colour, as
+  before), smooth normals are carried through and turned the right way on subtracted faces, and
+  `stencil` repaints the first operand's surface. A block with an operand manifold cannot take (an
+  open or flat one) is left to three-bvh-csg, so nothing shows less than before. It is also faster
+  (Chessboard 865 -> 406 ms, Train 338 -> 112 ms), and a lattice inside a `union` previews: the
+  10 x 10 x 10 one in about 8 s, where three-bvh-csg is refused at the time limit.
+- **Compared on the shipped models** (`scripts/compare-csg-engines.ts`): Ball, Cog and the Hollow
+  Sphere sample have the same surface per material; rendered, the models differ from
+  three-bvh-csg in at most 0.12% of pixels (Chessboard, whose board keeps faces between coincident
+  operands under three-bvh-csg that a watertight result cannot have).
+- `exportShapeScript` and `renderShapeScriptSheet` take `csgEngine` and load manifold when asked;
+  `ensureCsgEngine()`, `setDefaultCsgEngine()` and `csgEngineFor()` are exported, as are the
+  `CsgEngine`, `CsgEvaluator` and `CsgOperand` types. manifold's loader is shared by the STL export
+  and the preview (`src/shapescript/manifoldModule.ts`).
+
 ## 8.1.1
 
 8.1.0 was published from a checkout without #21, so these shipped in neither it nor its notes.

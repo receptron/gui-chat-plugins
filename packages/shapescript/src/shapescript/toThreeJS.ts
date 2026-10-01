@@ -85,6 +85,8 @@ import { disposeObject3D, disposeScratch } from "./dispose";
 import { minkowskiSum } from "./minkowski";
 import { at, defined } from "./at";
 import { reverseWinding } from "./winding";
+import { loadedManifold, loadManifold } from "./manifoldModule";
+import { manifoldCsgEvaluator } from "./manifoldCsg";
 
 /** What a conversion reports besides geometry. Stored on the root group's
  *  `userData` so both viewers and the tool result can read it. */
@@ -198,16 +200,59 @@ function loftSection(operand: THREE.Mesh | THREE.Line): THREE.Vector3[] {
 
 /** One operand of a CSG block, for a `ConversionOptions.csgEvaluator`. */
 export interface CsgOperand {
+  /** Positions, normals when the mesh has them, the index, and one group per
+   *  material: a group's `materialIndex` is one of this operand's
+   *  `materials` slots, 0 to `materials - 1`. In the block's own space, with
+   *  the winding outward even under a mirroring transform. */
   geometry: THREE.BufferGeometry;
   /** The ShapeScript `name`, or "" for an unnamed part. */
   name: string;
+  /** How many material slots this operand has. The result's groups number
+   *  slots across all operands in order: operand 0's first, then operand 1's. */
+  materials: number;
 }
 
-/** Evaluates one CSG block; see `ConversionOptions.csgEvaluator`. */
+/** Evaluates one CSG block; see `ConversionOptions.csgEvaluator`. Answers the
+ *  result (its groups' `materialIndex` numbering the operands' slots, or no
+ *  groups for the first operand's material), null to leave the block out, or
+ *  undefined to have the default engine evaluate this block instead. */
 export type CsgEvaluator = (
   operation: CSGNode["operation"],
   operands: readonly CsgOperand[],
-) => THREE.BufferGeometry | null;
+) => THREE.BufferGeometry | null | undefined;
+
+/** The engines a CSG block can be evaluated with. */
+export type CsgEngine = "three-bvh-csg" | "manifold";
+
+/** The engine a conversion uses when its options name none. three-bvh-csg
+ *  until a host opts in with `enableManifoldCsg()`. */
+let defaultCsgEngine: CsgEngine = "three-bvh-csg";
+
+/** Evaluate every conversion's CSG with manifold from now on, unless its
+ *  options say otherwise: loads manifold, then makes it the default. A host
+ *  calls this once — in the browser before the first View renders, on the
+ *  server before the first tool call — so every conversion, synchronous ones
+ *  included, finds manifold loaded. */
+export async function enableManifoldCsg(): Promise<void> {
+  await loadManifold();
+  defaultCsgEngine = "manifold";
+}
+
+/** Set the default engine directly. "manifold" needs manifold loaded first. */
+export function setDefaultCsgEngine(engine: CsgEngine): void {
+  defaultCsgEngine = engine;
+}
+
+/** The engine a conversion with `engine` (or none) would use. */
+export function csgEngineFor(engine?: CsgEngine): CsgEngine {
+  return engine ?? defaultCsgEngine;
+}
+
+/** Load what `engine` (or the default) needs before a synchronous conversion:
+ *  manifold for "manifold", nothing for three-bvh-csg. */
+export async function ensureCsgEngine(engine?: CsgEngine): Promise<void> {
+  if (csgEngineFor(engine) === "manifold") await loadManifold();
+}
 
 export interface ConversionOptions {
   wireframe?: boolean;
@@ -220,6 +265,14 @@ export interface ConversionOptions {
    *  the preview's (the printable STL, through manifold, since
    *  three-bvh-csg's output is not watertight). The preview never sets it. */
   csgEvaluator?: CsgEvaluator;
+  /** Which engine evaluates CSG blocks when no `csgEvaluator` is given.
+   *  `"three-bvh-csg"` (the default) as before; `"manifold"` evaluates them
+   *  with manifold, keeping each operand's material and smooth normals, and
+   *  falls back to three-bvh-csg for a block with an operand manifold cannot
+   *  take (an open or flat one). Manifold must be loaded first
+   *  (`await ensureCsgEngine("manifold")`). Defaults to the package-wide
+   *  engine, which `enableManifoldCsg()` sets. */
+  csgEngine?: CsgEngine;
   /** Hard ceiling on the objects one script may produce. See
    *  `DEFAULT_MAX_NODES`. */
   maxNodes?: number;
@@ -290,15 +343,28 @@ function stretchedY(
  *  faces — an evaluator reading the winding as outward would not, so it is
  *  reversed here, as the STL export reverses it. */
 function operandGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  const source = mesh.geometry;
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    mesh.geometry.getAttribute("position").clone(),
-  );
-  if (mesh.geometry.index) geometry.setIndex(mesh.geometry.index.clone());
+  geometry.setAttribute("position", source.getAttribute("position").clone());
+  const normal = source.getAttribute("normal");
+  if (normal) geometry.setAttribute("normal", normal.clone());
+  if (source.index) geometry.setIndex(source.index.clone());
+  const count = source.index?.count ?? source.getAttribute("position").count;
+  // A geometry's own groups name material slots only when the mesh has a
+  // material per slot: BoxGeometry carries one group per face, numbered 0-5,
+  // whatever single material it is drawn with.
+  if (Array.isArray(mesh.material) && source.groups.length > 0)
+    for (const group of source.groups)
+      geometry.addGroup(group.start, group.count, group.materialIndex ?? 0);
+  else geometry.addGroup(0, count, 0);
   geometry.applyMatrix4(mesh.matrixWorld);
   if (mesh.matrixWorld.determinant() < 0) reverseWinding(geometry);
   return geometry;
+}
+
+/** A mesh's materials as a list, one per material slot. */
+function materialsOf(mesh: THREE.Mesh): THREE.Material[] {
+  return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
 
 export const DEFAULT_MAX_NODES = 100_000;
@@ -456,6 +522,7 @@ export class Converter {
   private nodeCount = 0;
   /** Vertices allocated so far, checked against `maxVertices` on every mesh. */
   private vertexCount = 0;
+  private manifoldEvaluator: CsgEvaluator | undefined;
   /** When this conversion began, checked against `maxDurationMs` on every node. */
   private readonly startedAt = Date.now();
 
@@ -580,12 +647,13 @@ export class Converter {
    *  limit is small, and it is freed before the refusal propagates. */
   private makeMesh(
     geometry: THREE.BufferGeometry,
-    material: THREE.Material,
+    material: THREE.Material | THREE.Material[],
   ): THREE.Mesh {
     this.vertexCount += geometry.getAttribute("position")?.count ?? 0;
     if (this.vertexCount > this.maxVertices) {
       geometry.dispose();
-      material.dispose();
+      for (const each of Array.isArray(material) ? material : [material])
+        each.dispose();
       throw new ShapeScriptLimitError(
         `ShapeScript exceeds ${this.maxVertices} vertices — lower \`detail\` or use fewer shapes`,
       );
@@ -601,18 +669,21 @@ export class Converter {
     operation: CSGNode["operation"],
     meshes: THREE.Mesh[],
     savedMatrix: THREE.Matrix4,
-  ): THREE.Object3D {
+  ): THREE.Object3D | undefined {
     const operands = meshes.map((mesh) => ({
       geometry: operandGeometry(mesh),
       name: mesh.name,
+      materials: materialsOf(mesh).length,
     }));
     try {
       const geometry = evaluate(operation, operands);
+      if (geometry === undefined) return undefined;
       if (!geometry) return new THREE.Group();
-      const first = at(meshes, 0);
-      const material = Array.isArray(first.material)
-        ? at(first.material, 0)
-        : first.material;
+      // Grouped: the groups number every operand's materials in order.
+      const material =
+        geometry.groups.length > 0
+          ? meshes.flatMap(materialsOf)
+          : at(materialsOf(at(meshes, 0)), 0);
       const result = this.makeMesh(geometry, material);
       result.applyMatrix4(savedMatrix);
       result.updateMatrixWorld(true);
@@ -620,6 +691,21 @@ export class Converter {
     } finally {
       for (const operand of operands) operand.geometry.dispose();
     }
+  }
+
+  /** The evaluator for this conversion's CSG blocks: the caller's, else
+   *  manifold's when `csgEngine` asks for it, else none (three-bvh-csg). */
+  private csgEvaluator(): CsgEvaluator | undefined {
+    if (this.options.csgEvaluator) return this.options.csgEvaluator;
+    if ((this.options.csgEngine ?? defaultCsgEngine) !== "manifold")
+      return undefined;
+    const wasm = loadedManifold();
+    if (!wasm)
+      throw new Error(
+        'csgEngine "manifold" needs manifold loaded first: await loadManifold() before converting',
+      );
+    this.manifoldEvaluator ??= manifoldCsgEvaluator(wasm);
+    return this.manifoldEvaluator;
   }
 
   /** Refuse once the conversion has run past `maxDurationMs`. Called between
@@ -1755,16 +1841,13 @@ export class Converter {
 
       scratch.push(...meshes);
 
-      const custom = this.options.csgEvaluator;
-      if (custom) {
-        const result = this.evaluateCSGWith(
-          custom,
-          node.operation,
-          meshes,
-          savedMatrix,
-        );
-        disposeScratch(scratch, result);
-        return result;
+      const custom = this.csgEvaluator();
+      const evaluated =
+        custom &&
+        this.evaluateCSGWith(custom, node.operation, meshes, savedMatrix);
+      if (evaluated) {
+        disposeScratch(scratch, evaluated);
+        return evaluated;
       }
 
       // Convert meshes to Brushes with materials
