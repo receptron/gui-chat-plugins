@@ -221,6 +221,45 @@ describe("csgEngine manifold", () => {
     }
   });
 
+  it("keeps a mirrored nested result's normals on their own corners (codex on #24)", () => {
+    // The inner union is manifold's (non-indexed) result; `scale -1 1 1`
+    // mirrors it as an operand of the outer union, which reverses its
+    // winding. On the sphere every normal must still point along the radius,
+    // as it does unmirrored — swapping positions alone left them 11 degrees off.
+    for (const mirror of [false, true]) {
+      const script = `detail 32\nunion {\n${mirror ? " scale -1 1 1\n" : ""} union {\n  sphere\n  cube {\n   size 0.1\n   position 2 0 0\n  }\n }\n cube {\n  size 0.1\n  position 4 0 0\n }\n}`;
+      const group = astToThreeJS(parseShapeScript(script), {
+        csgEngine: "manifold",
+      });
+      group.updateMatrixWorld(true);
+      let worst = 1;
+      let checked = 0;
+      group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const position = mesh.geometry.getAttribute("position");
+        const normal = mesh.geometry.getAttribute("normal");
+        for (let v = 0; v < position.count; v++) {
+          const at = new THREE.Vector3()
+            .fromBufferAttribute(position, v)
+            .applyMatrix4(mesh.matrixWorld);
+          if (Math.abs(at.length() - 0.5) > 0.02) continue;
+          checked++;
+          const n = new THREE.Vector3()
+            .fromBufferAttribute(normal, v)
+            .transformDirection(mesh.matrixWorld);
+          worst = Math.min(worst, n.dot(at.normalize()));
+        }
+      });
+      disposeObject3D(group);
+      assert.ok(checked > 1000, `${checked} sphere vertices`);
+      assert.ok(
+        worst > 0.999,
+        `${mirror ? "mirrored" : "unmirrored"}: worst ${worst}`,
+      );
+    }
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];
