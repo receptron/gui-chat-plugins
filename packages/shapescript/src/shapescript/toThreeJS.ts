@@ -196,6 +196,12 @@ function loftSection(operand: THREE.Mesh | THREE.Line): THREE.Vector3[] {
 
 export interface ConversionOptions {
   wireframe?: boolean;
+  /** Leave CSG blocks unevaluated: each becomes a `THREE.Group` of its
+   *  operands, in order, with `userData.csgOperation` naming the operation
+   *  and the block's transform on the group. For an exporter that evaluates
+   *  the booleans itself (the printable STL, through manifold), since
+   *  three-bvh-csg's output is not watertight. The preview never sets it. */
+  deferCsg?: boolean;
   /** Hard ceiling on the objects one script may produce. See
    *  `DEFAULT_MAX_NODES`. */
   maxNodes?: number;
@@ -550,6 +556,36 @@ export class Converter {
       );
     }
     return new THREE.Mesh(geometry, material);
+  }
+
+  /** A CSG block left for an exporter to evaluate (`deferCsg`): its operands
+   *  built in the block's own space, as `convertCSG` builds them, under a
+   *  group carrying the operation and the block's transform. */
+  private deferredCSG(node: CSGNode): THREE.Group {
+    const group = new THREE.Group();
+    group.userData.csgOperation = node.operation;
+    const savedMatrix = this.currentTransform().matrix.clone();
+    this.symbols.pushScope();
+    this.pushTransform();
+    this.currentTransform().matrix.identity();
+    try {
+      for (const child of node.children) {
+        if (child.type === "path")
+          throw new Error(
+            "A `path` has no volume and cannot be a CSG operand — wrap it in `extrude`, `lathe` or `fill`",
+          );
+        const object = this.captureValues(null, () => this.convertNode(child));
+        if (object) group.add(object);
+      }
+    } catch (error) {
+      disposeObject3D(group);
+      throw error;
+    } finally {
+      this.popTransform();
+      this.symbols.popScope();
+    }
+    group.applyMatrix4(savedMatrix);
+    return group;
   }
 
   /** Refuse once the conversion has run past `maxDurationMs`. Called between
@@ -1598,6 +1634,7 @@ export class Converter {
     if (node.children.length === 0) {
       return new THREE.Group();
     }
+    if (this.options.deferCsg) return this.deferredCSG(node);
 
     // Save the transform state BEFORE entering block - CSG result will be positioned here
     const savedMatrix = this.currentTransform().matrix.clone();

@@ -50,7 +50,7 @@ export async function sceneToStl(
  *  weights (`setMorphAt`) live in a texture `getVertexPosition` never reads,
  *  so each instance's are loaded onto the mesh for its bake and the mesh's
  *  own restored after (codex on #3171). */
-function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
+export function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
   const instanced = mesh as THREE.InstancedMesh;
   if (!instanced.isInstancedMesh)
     return [bakedWorldGeometry(mesh, mesh.matrixWorld)];
@@ -115,7 +115,7 @@ function reverseWinding(geometry: THREE.BufferGeometry): void {
 }
 
 /** The meshes under `object` that are shown: none below a hidden node. */
-function visibleMeshes(object: THREE.Object3D): THREE.Mesh[] {
+export function visibleMeshes(object: THREE.Object3D): THREE.Mesh[] {
   if (!object.visible) return [];
   const own = (object as THREE.Mesh).isMesh ? [object as THREE.Mesh] : [];
   return own.concat(...object.children.map(visibleMeshes));

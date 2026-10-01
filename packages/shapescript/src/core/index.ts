@@ -32,6 +32,7 @@ export {
   isShapeArtifactPath,
   shapeArtifactPath,
   usdzArtifactPath,
+  stlArtifactPath,
   toArtifactsRelative,
   SHAPE_EXTENSIONS,
 } from "./paths";
@@ -70,6 +71,25 @@ export {
   EXPORT_USDZ_TOOL_TIMEOUT_MS,
 } from "../export/tool";
 export type { ExportUsdzResult } from "../export/tool";
+// Printable STL through manifold: one watertight solid in print coordinates,
+// with a report, and the `exportShapeScriptStl` tool. manifold's WebAssembly
+// is loaded only when one of these runs.
+export {
+  shapeScriptToPrintableStl,
+  loadManifold,
+  binaryStl,
+} from "../export/printable";
+export type { PrintReport, PrintableOptions } from "../export/printable";
+export {
+  executeExportShapeScriptStl,
+  describePrintReport,
+  EXPORT_STL_TOOL_NAME,
+  EXPORT_STL_DESCRIPTION,
+  EXPORT_STL_PROMPT,
+  EXPORT_STL_SCHEMA,
+  EXPORT_STL_TOOL_TIMEOUT_MS,
+} from "../export/stlTool";
+export type { ExportStlResult } from "../export/stlTool";
 export {
   executeManageShapeScript,
   existingShapePost,
