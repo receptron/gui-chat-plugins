@@ -99,11 +99,39 @@ scene.add(floor);
 `;
 }
 
+/** How far the perspective camera stands, and how much the orthographic one
+ *  shows, for the model's bounding sphere at `zoom`. Both were set from the
+ *  tile's HEIGHT, which fits only while the tile is at least as wide as it is
+ *  tall: in a portrait tile the width is the narrower side, and it cropped the
+ *  model (gui-chat-plugins#17). There they are scaled so the narrower side
+ *  fits as the height does in a square tile — square and landscape tiles are
+ *  framed exactly as before:
+ *  - orthographic: the visible half-width is `halfHeight * aspect`, so by
+ *    `1 / aspect`;
+ *  - perspective (vertical field of view 35°): the horizontal half-angle `h`
+ *    has `tan h = tan 17.5° * aspect`, and a sphere fits a half-angle `a` at
+ *    `radius / sin a`, so the distance by `sin 17.5° / sin h`.
+ *
+ *  JavaScript source, embedded in the page as is; the tests evaluate the same
+ *  text, so the page and the tests cannot disagree about the framing. */
+export const FRAMING_SOURCE = `function framing(radius, zoom, aspect) {
+  const scale = 1 / Math.max(zoom, 0.01);
+  const vertical = (17.5 * Math.PI) / 180;
+  const horizontal = Math.atan(Math.tan(vertical) * aspect);
+  const perspective = aspect < 1 ? Math.sin(vertical) / Math.sin(horizontal) : 1;
+  const orthographic = aspect < 1 ? 1 / aspect : 1;
+  return {
+    distance: radius * 3.2 * perspective * scale,
+    halfHeight: radius * 1.3 * orthographic * scale,
+  };
+}`;
+
 /** The second half: frame each requested angle and draw it into the sheet. */
 function drawScript(): string {
   return `
 const aspect = config.width / config.height;
-const distance = (radius * 3.2) / Math.max(config.zoom, 0.01);
+${FRAMING_SOURCE}
+const { distance, halfHeight } = framing(radius, config.zoom, aspect);
 
 function cameraFor(angle) {
   const phi = MathUtils.degToRad(90 - angle.elevation);
@@ -112,7 +140,6 @@ function cameraFor(angle) {
   const far = distance + radius * 10;
   let camera;
   if (config.projection === "orthographic") {
-    const halfHeight = (radius * 1.3) / Math.max(config.zoom, 0.01);
     camera = new OrthographicCamera(-halfHeight * aspect, halfHeight * aspect, halfHeight, -halfHeight, 0.01, far);
   } else {
     camera = new PerspectiveCamera(35, aspect, Math.max(distance / 100, 0.01), far);
