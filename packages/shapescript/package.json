@@ -1,0 +1,84 @@
+{
+  "name": "@gui-chat-plugin/shapescript",
+  "version": "8.0.0",
+  "description": "presentShapeScript — interactive 3D models authored in the ShapeScript language (parser + Three.js renderer), with USDZ / GLB / STL export, for GUI Chat Protocol hosts. Core (tool definition + execute) on `.`, Vue View/Preview on `./vue`, server-only rasterising on `./render`.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./render": {
+      "types": "./dist/render/index.d.ts",
+      "import": "./dist/render.js",
+      "require": "./dist/render.cjs",
+      "default": "./dist/render.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.cjs",
+      "default": "./dist/vue.js"
+    },
+    "./style.css": "./dist/style.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build && vue-tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "tsx --test test/test_*.ts"
+  },
+  "dependencies": {
+    "@gui-chat-plugin/common": "^0.1.0",
+    "@types/three": "^0.186.0",
+    "three": "^0.186.0",
+    "three-bvh-csg": "^0.0.18",
+    "three-mesh-bvh": "0.9.15"
+  },
+  "peerDependencies": {
+    "gui-chat-protocol": "^2.3.0",
+    "puppeteer": "^25.0.0",
+    "vue": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "puppeteer": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "gui-chat-protocol": "^2.3.0",
+    "puppeteer": "^25.12.0",
+    "vue": "^3.5.43",
+    "vue-tsc": "^3.3.11"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/shapescript#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/receptron/gui-chat-plugins.git",
+    "directory": "packages/shapescript"
+  },
+  "bugs": {
+    "url": "https://github.com/receptron/gui-chat-plugins/issues"
+  },
+  "keywords": [
+    "gui-chat",
+    "gui-chat-protocol",
+    "plugin",
+    "shapescript",
+    "3d",
+    "three"
+  ]
+}

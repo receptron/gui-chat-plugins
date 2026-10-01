@@ -3,6 +3,9 @@
 [GUI Chat Protocol](https://github.com/receptron/gui-chat-protocol) plugins, one npm package per
 plugin under `@gui-chat-plugin/`, in `packages/<name>/`. MIT. The hosts that use them are MulmoChat
 (`../../chat`) and MulmoGlass (`../../MulmoGlass`); a change here has to keep working in both.
+`packages/shapescript` is the exception: moved from MulmoClaude, its hosts are MulmoClaude and
+MulmoTerminal, and it takes three extras the protocol doesn't define (`files.byPath`, `gallery`,
+`renderThumbnail`), each optional and listed in its README.
 
 `packages/common` is the one package that is not a plugin: no tools and no Views, only pure,
 browser-safe helpers the plugins share. It depends only on `gui-chat-protocol` (a peer), and a
