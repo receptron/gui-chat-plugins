@@ -233,6 +233,33 @@ export interface ConversionOptions {
 // tree at ~0.5M vertices was refused as "more than 100000 objects" — a tenth
 // of the vertex budget, built in under 200ms. Counting objects lines the two
 // ceilings up: 100k cylinders at `detail 8` is ~5M vertices, the vertex cap.
+/** A curved primitive's depth from `size`. `cylinder` and `cone` are built
+ *  round, from the diameter `size[0]`, so a different `size[2]` makes the
+ *  cross-section an ellipse, as `sphere` and upstream scale the unit shape
+ *  by every component (gui-chat-plugins#18). `evaluateSize` fills an omitted
+ *  z with x, so `size 1 2` stays round. */
+function stretchedZ(
+  geometry: THREE.BufferGeometry,
+  size: Vector3,
+): THREE.BufferGeometry {
+  const [x, , z] = size;
+  return x !== 0 && z !== x ? geometry.scale(1, 1, z / x) : geometry;
+}
+
+/** A flat round primitive's height from `size`: built round at `diameter`,
+ *  so a different `size[1]` makes it an ellipse. A zero falls back to the
+ *  diameter, as `square` falls back to its side (#18). */
+function stretchedY(
+  geometry: THREE.BufferGeometry,
+  diameter: number,
+  height: number,
+): THREE.BufferGeometry {
+  const target = height || diameter;
+  return target !== diameter
+    ? geometry.scale(1, target / diameter, 1)
+    : geometry;
+}
+
 export const DEFAULT_MAX_NODES = 100_000;
 export const DEFAULT_MAX_LOOP_ITERATIONS = 100_000;
 
@@ -1329,12 +1356,16 @@ export class Converter {
           : size[1];
         // One radius may be zero — that is a cone, not a degenerate cylinder.
         this.requireExtent("cylinder", [radiusTop || radiusBottom, height]);
-        return new THREE.CylinderGeometry(
+        const cylinder = new THREE.CylinderGeometry(
           radiusTop,
           radiusBottom,
           height,
           this.detailLevel,
         );
+        // Explicit radii say the cross-section is round.
+        return node.properties.radiusTop || node.properties.radiusBottom
+          ? cylinder
+          : stretchedZ(cylinder, size);
       }
 
       case "cone": {
@@ -1343,7 +1374,10 @@ export class Converter {
           ? this.evaluateNumber(node.properties.height)
           : size[1];
         this.requireExtent("cone", [radius, height]);
-        return new THREE.ConeGeometry(radius, height, this.detailLevel);
+        return stretchedZ(
+          new THREE.ConeGeometry(radius, height, this.detailLevel),
+          size,
+        );
       }
 
       case "torus":
@@ -1351,7 +1385,11 @@ export class Converter {
 
       case "circle": {
         const radius = (size[0] || 1) / 2;
-        return new THREE.CircleGeometry(radius, this.detailLevel);
+        return stretchedY(
+          new THREE.CircleGeometry(radius, this.detailLevel),
+          radius * 2,
+          size[1],
+        );
       }
 
       case "square": {
@@ -1372,7 +1410,11 @@ export class Converter {
           throw new Error(
             `Polygon sides must be an integer from 3 to ${MAX_DETAIL}`,
           );
-        return new THREE.CircleGeometry(radius, sides);
+        return stretchedY(
+          new THREE.CircleGeometry(radius, sides),
+          radius * 2,
+          size[1],
+        );
       }
 
       default:

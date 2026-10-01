@@ -214,6 +214,34 @@ describe("geometry builders", () => {
       /longer than/,
     );
   });
+  it("applies every `size` component to cylinder, cone, circle and polygon (#18)", () => {
+    const sizeOf = (script: string): number[] => {
+      const group = astToThreeJS(parseShapeScript(script));
+      try {
+        const box = new THREE.Box3().setFromObject(group);
+        return box
+          .getSize(new THREE.Vector3())
+          .toArray()
+          .map((v) => Math.round(v * 1000) / 1000);
+      } finally {
+        disposeObject3D(group);
+      }
+    };
+    const detail = "detail 64\n";
+    assert.deepEqual(sizeOf(`${detail}cylinder { size 1 2 3 }`), [1, 2, 3]);
+    assert.deepEqual(sizeOf(`${detail}cone { size 1 2 3 }`), [1, 2, 3]);
+    assert.deepEqual(sizeOf(`${detail}circle { size 1 2 }`), [1, 2, 0]);
+    // Four sides put the corners on the axes, so the extents are the size.
+    assert.deepEqual(
+      sizeOf(`${detail}polygon {\n sides 4\n size 2 1\n}`),
+      [2, 1, 0],
+    );
+    // Unchanged where the script gives no separate component.
+    assert.deepEqual(sizeOf(`${detail}cylinder { size 1 2 }`), [1, 2, 1]);
+    assert.deepEqual(sizeOf(`${detail}cone { size 2 }`), [2, 2, 2]);
+    assert.deepEqual(sizeOf(`${detail}circle { size 2 }`), [2, 2, 0]);
+    assert.deepEqual(sizeOf(`${detail}circle { size 1 0 }`), [1, 1, 0]);
+  });
   it("compares tuples element by element, recursively, as `in` and `switch` do (#19)", () => {
     // A cube is built exactly when the condition holds.
     const holds = (condition: string): boolean => {
