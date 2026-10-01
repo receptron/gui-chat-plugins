@@ -216,6 +216,23 @@ describe("shapeScriptToPrintableStl", () => {
     assert.equal(report.nonManifoldEdges, 0);
   });
 
+  it("merges thousands of parts that share one centre without recursing", async () => {
+    // Every part's centre is the same, so the split puts them all in one block
+    // whatever the block count: 2,000 identical cubes, and 1,200 concentric
+    // ones (codex on #21). Both overflowed the stack.
+    const same = await shapeScriptToPrintableStl(
+      "for i in 0 to 1999 {\n cube\n}",
+    );
+    assert.equal(same.report.parts, 2000);
+    assert.equal(same.report.bodies, 1);
+    near([same.report.volumeMm3], [1]);
+    const nested = await shapeScriptToPrintableStl(
+      "for i in 1 to 1200 {\n cube {\n  size (i / 1200)\n }\n}",
+    );
+    assert.equal(nested.report.bodies, 1);
+    near([nested.report.volumeMm3], [1]);
+  });
+
   it("merges just over a thousand parts, one block, without recursing", async () => {
     // 1,200 parts is over SPATIAL_MIN_PARTS but still one block per axis.
     const script =

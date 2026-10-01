@@ -158,18 +158,11 @@ function spatialUnion(
   parts: Manifold[],
   owned: Owned,
 ): Manifold {
-  const { Manifold: M } = wasm;
+  if (parts.length < SPATIAL_MIN_PARTS) return batchUnion(wasm, parts, owned);
   const perAxis = Math.max(
     1,
     Math.round(Math.cbrt(parts.length / BLOCK_PARTS)),
   );
-  // One block would be the same union again: batch it.
-  if (parts.length < SPATIAL_MIN_PARTS || perAxis === 1) {
-    const result = owned.keep(M.union(parts));
-    result.numTri();
-    owned.release(parts);
-    return result;
-  }
   const centres = parts.map((part) => {
     const { min, max } = part.boundingBox();
     return [0, 1, 2].map((axis) => (at(min, axis) + at(max, axis)) / 2);
@@ -198,10 +191,27 @@ function spatialUnion(
     if (block) block.push(part);
     else blocks.set(key, [part]);
   });
+  // A single block would be this same union again — too few parts per axis,
+  // or every part sharing one centre (2,000 identical cubes, concentric
+  // solids; codex on #21) — so batch it. With two or more blocks each is
+  // smaller than `parts`, and so is the list of their unions: it terminates.
+  if (blocks.size < 2) return batchUnion(wasm, parts, owned);
   const unions = [...blocks.values()].map((block) =>
     spatialUnion(wasm, block, owned),
   );
   return spatialUnion(wasm, unions, owned);
+}
+
+/** One batch union, evaluated, its inputs freed. */
+function batchUnion(
+  wasm: ManifoldToplevel,
+  parts: Manifold[],
+  owned: Owned,
+): Manifold {
+  const result = owned.keep(wasm.Manifold.union(parts));
+  result.numTri();
+  owned.release(parts);
+  return result;
 }
 
 /** The converter's CSG engine for this export: each block's operands as
