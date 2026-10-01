@@ -18,6 +18,9 @@
   `print` text holding it ended the element and the rest ran in the headless browser — able to
   replace the PNG. The page now escapes `<` in everything it interpolates (`scriptJson`). 7.1.0
   has this bug.
+- **`@types/three` is a dependency**, not a dev dependency: the published declarations import from
+  `three`, which ships no types of its own, so a TypeScript consumer without its own `@types/three`
+  got TS7016 with `skipLibCheck` off. 7.1.0 has this too.
 - **`renderThumbnail` is optional** in `manageShapeScript`'s context, as a capability a host may not
   have; without it every post goes up without a picture. Before, a host had to pass a function
   that answered `null`.
