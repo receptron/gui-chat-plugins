@@ -101,7 +101,9 @@ preview's CSG engine, whose output is not watertight:
 
 - **Every top-level solid is merged**: parts placed side by side print as one object, without a
   `union` block. CSG blocks are evaluated by manifold too, in the order the preview evaluates
-  them (`union`, `difference`, `intersection`, `xor`; `stencil` keeps its first operand's shape).
+  them (`union`, `difference`, `intersection`, `xor`; `stencil` keeps its first operand's shape),
+  wherever they occur — placed, stored with `define`, or returned by a function. A block whose
+  result is empty is left out and reported; a model with nothing left is refused.
 - **Print coordinates**: millimetres, Z up, resting on Z = 0. `unitScale` is millimetres per
   ShapeScript unit (default 1, so `cube` is a 1 mm cube).
 - **Parts that are not closed solids** — a flat `circle`, a `fill`, an open path, text outlines —

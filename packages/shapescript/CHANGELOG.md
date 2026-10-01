@@ -5,7 +5,8 @@
 - **`exportShapeScriptStl`: a printable STL.** The model as one watertight solid for a slicer,
   through manifold (`manifold-3d`, WebAssembly) rather than the preview's CSG engine, whose output
   slicers reject as non-manifold. Every top-level solid is merged (no `union` needed), CSG blocks
-  are evaluated by manifold in the preview's order, and the file is in millimetres, Z up, resting
+  are evaluated by manifold in the preview's order wherever they occur (placed, stored with
+  `define`, returned by a function), and the file is in millimetres, Z up, resting
   on Z = 0 (`unitScale`: mm per unit, default 1). The answer carries a report: size, parts merged
   and skipped (flat or open parts, by name), bodies, genus, volume, non-manifold edges after a
   slicer-style merge, and warnings. `shapeScriptToPrintableStl` is the same without the tool.

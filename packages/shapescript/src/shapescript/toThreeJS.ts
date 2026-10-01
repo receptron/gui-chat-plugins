@@ -195,14 +195,30 @@ function loftSection(operand: THREE.Mesh | THREE.Line): THREE.Vector3[] {
   return points;
 }
 
+/** One operand of a CSG block, for a `ConversionOptions.csgEvaluator`. */
+export interface CsgOperand {
+  geometry: THREE.BufferGeometry;
+  /** The ShapeScript `name`, or "" for an unnamed part. */
+  name: string;
+}
+
+/** Evaluates one CSG block; see `ConversionOptions.csgEvaluator`. */
+export type CsgEvaluator = (
+  operation: CSGNode["operation"],
+  operands: readonly CsgOperand[],
+) => THREE.BufferGeometry | null;
+
 export interface ConversionOptions {
   wireframe?: boolean;
-  /** Leave CSG blocks unevaluated: each becomes a `THREE.Group` of its
-   *  operands, in order, with `userData.csgOperation` naming the operation
-   *  and the block's transform on the group. For an exporter that evaluates
-   *  the booleans itself (the printable STL, through manifold), since
-   *  three-bvh-csg's output is not watertight. The preview never sets it. */
-  deferCsg?: boolean;
+  /** Evaluate every CSG block with this instead of three-bvh-csg: given the
+   *  block's operation and its operands (in the block's own space, in the
+   *  order the default engine takes them), it answers the result in that
+   *  space, or null to leave the block out. Called wherever a block occurs —
+   *  placed, stored with `define`, returned by a function — so the result is
+   *  the same in every case. For an exporter whose engine must differ from
+   *  the preview's (the printable STL, through manifold, since
+   *  three-bvh-csg's output is not watertight). The preview never sets it. */
+  csgEvaluator?: CsgEvaluator;
   /** Hard ceiling on the objects one script may produce. See
    *  `DEFAULT_MAX_NODES`. */
   maxNodes?: number;
@@ -559,34 +575,33 @@ export class Converter {
     return new THREE.Mesh(geometry, material);
   }
 
-  /** A CSG block left for an exporter to evaluate (`deferCsg`): its operands
-   *  built in the block's own space, as `convertCSG` builds them, under a
-   *  group carrying the operation and the block's transform. */
-  private deferredCSG(node: CSGNode): THREE.Group {
-    const group = new THREE.Group();
-    group.userData.csgOperation = node.operation;
-    const savedMatrix = this.currentTransform().matrix.clone();
-    this.symbols.pushScope();
-    this.pushTransform();
-    this.currentTransform().matrix.identity();
+  /** A CSG block through `csgEvaluator`: the operands as geometries in the
+   *  block's space, the answer as one mesh in the first operand's material,
+   *  placed where the block is. Nothing when the evaluator leaves it out. */
+  private evaluateCSGWith(
+    evaluate: CsgEvaluator,
+    operation: CSGNode["operation"],
+    meshes: THREE.Mesh[],
+    savedMatrix: THREE.Matrix4,
+  ): THREE.Object3D {
+    const operands = meshes.map((mesh) => ({
+      geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld),
+      name: mesh.name,
+    }));
     try {
-      for (const child of node.children) {
-        if (child.type === "path")
-          throw new Error(
-            "A `path` has no volume and cannot be a CSG operand — wrap it in `extrude`, `lathe` or `fill`",
-          );
-        const object = this.captureValues(null, () => this.convertNode(child));
-        if (object) group.add(object);
-      }
-    } catch (error) {
-      disposeObject3D(group);
-      throw error;
+      const geometry = evaluate(operation, operands);
+      if (!geometry) return new THREE.Group();
+      const first = at(meshes, 0);
+      const material = Array.isArray(first.material)
+        ? at(first.material, 0)
+        : first.material;
+      const result = this.makeMesh(geometry, material);
+      result.applyMatrix4(savedMatrix);
+      result.updateMatrixWorld(true);
+      return result;
     } finally {
-      this.popTransform();
-      this.symbols.popScope();
+      for (const operand of operands) operand.geometry.dispose();
     }
-    group.applyMatrix4(savedMatrix);
-    return group;
   }
 
   /** Refuse once the conversion has run past `maxDurationMs`. Called between
@@ -1635,7 +1650,6 @@ export class Converter {
     if (node.children.length === 0) {
       return new THREE.Group();
     }
-    if (this.options.deferCsg) return this.deferredCSG(node);
 
     // Save the transform state BEFORE entering block - CSG result will be positioned here
     const savedMatrix = this.currentTransform().matrix.clone();
@@ -1723,6 +1737,18 @@ export class Converter {
 
       scratch.push(...meshes);
 
+      const custom = this.options.csgEvaluator;
+      if (custom) {
+        const result = this.evaluateCSGWith(
+          custom,
+          node.operation,
+          meshes,
+          savedMatrix,
+        );
+        disposeScratch(scratch, result);
+        return result;
+      }
+
       // Convert meshes to Brushes with materials
       const brushes = meshes.map((mesh) => {
         const brush = new Brush(mesh.geometry, mesh.material);
@@ -1761,6 +1787,11 @@ export class Converter {
           brush.geometry.dispose();
           this.vertexCount -= count;
           intermediates.delete(brush);
+          // Dropped from `scratch` too: dispose() frees GPU buffers only, and
+          // a reference there would keep its vertex arrays and BVH alive until
+          // the block ends — the memory the charge was just refunded for.
+          for (let k = scratch.length - 1; k >= 0; k--)
+            if (scratch[k] === brush) scratch.splice(k, 1);
         }
       };
 

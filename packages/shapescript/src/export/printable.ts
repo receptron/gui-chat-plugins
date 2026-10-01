@@ -4,12 +4,12 @@
 // output from three-bvh-csg is not watertight: triangles split on one side of
 // a cut but not the other leave T-junctions, which slicers report as
 // non-manifold edges. Here the geometry goes through manifold (`manifold-3d`,
-// WebAssembly) instead: the model is converted with CSG left unevaluated
-// (`deferCsg`), every closed part becomes a manifold, each CSG block is
-// evaluated by manifold in the order the preview evaluates it, all top-level
-// solids are merged in one batch union, and the result is written in print
-// coordinates — millimetres, Z up, resting on Z = 0 — with a report of what a
-// slicer will find.
+// WebAssembly) instead: the converter evaluates every CSG block with manifold
+// (`csgEvaluator`) wherever it occurs — placed, stored with `define`, or
+// returned by a function — every closed top-level part becomes a manifold,
+// all of them are merged in one batch union, and the result is written in
+// print coordinates — millimetres, Z up, resting on Z = 0 — with a report of
+// what a slicer will find.
 //
 // manifold is loaded on first use with a dynamic `import()`, so a host that
 // never exports a printable STL never fetches the WebAssembly.
@@ -18,10 +18,15 @@ import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Manifold, ManifoldToplevel } from "manifold-3d";
 import { parseShapeScript } from "../shapescript/parser";
-import { astToThreeJS } from "../shapescript/toThreeJS";
+import {
+  astToThreeJS,
+  type CsgEvaluator,
+  type CsgOperand,
+} from "../shapescript/toThreeJS";
 import { disposeObject3D } from "../shapescript/dispose";
 import type { ExportOptions } from "./model";
-import { bakedWorldGeometries } from "./stl";
+import { at } from "../shapescript/at";
+import { bakedWorldGeometries, visibleMeshes } from "./stl";
 
 /** What a slicer will make of a printable STL. */
 export interface PrintReport {
@@ -53,8 +58,8 @@ export interface PrintableOptions extends ExportOptions {
 /** Vertices this close in the output are one vertex to a slicer. */
 const WELD_MM = 1e-5;
 
-/** Seam vertices of one part closer than this fraction of the model's extent
- *  are merged before the part goes to manifold: a primitive's UV seam
+/** Seam vertices of one part closer than this fraction of its extent are
+ *  merged before the part goes to manifold: a primitive's UV seam
  *  duplicates its vertices, which leaves it open otherwise. */
 const SEAM_WELD = 1e-6;
 
@@ -77,7 +82,7 @@ export function loadManifold(): Promise<ManifoldToplevel> {
 }
 
 /** Parse, evaluate and export one ShapeScript source as a printable binary
- *  STL, with its report. Throws when no part is a closed solid. */
+ *  STL, with its report. Throws when nothing is left to print. */
 export async function shapeScriptToPrintableStl(
   script: string,
   options: PrintableOptions = {},
@@ -85,16 +90,24 @@ export async function shapeScriptToPrintableStl(
   const { unitScale = 1, ...conversion } = options;
   if (!(Number.isFinite(unitScale) && unitScale > 0))
     throw new Error("`unitScale` must be a positive number of millimetres");
+  // Loaded before the conversion: the CSG evaluator it is handed runs
+  // synchronously, inside the converter.
   const wasm = await loadManifold();
-  const group = astToThreeJS(parseShapeScript(script), {
-    ...conversion,
-    wireframe: false,
-    deferCsg: true,
-  });
+  const owned = new Owned();
+  const skipped: PrintReport["skipped"] = [];
   try {
-    return sceneToPrintableStl(wasm, group, unitScale);
+    const group = astToThreeJS(parseShapeScript(script), {
+      ...conversion,
+      wireframe: false,
+      csgEvaluator: manifoldCsg(wasm, owned, skipped),
+    });
+    try {
+      return sceneToPrintableStl(wasm, group, unitScale, owned, skipped);
+    } finally {
+      disposeObject3D(group);
+    }
   } finally {
-    disposeObject3D(group);
+    owned.free();
   }
 }
 
@@ -111,144 +124,162 @@ class Owned {
   }
 }
 
-function sceneToPrintableStl(
+/** The converter's CSG engine for this export: each block's operands as
+ *  manifolds, combined by manifold, answered as a watertight geometry. An
+ *  operand that is not a closed solid is left out and recorded; a block whose
+ *  first operand is one, or whose result is empty, is left out whole. */
+function manifoldCsg(
   wasm: ManifoldToplevel,
-  object: THREE.Object3D,
-  unitScale: number,
-): { stl: Uint8Array<ArrayBuffer>; report: PrintReport } {
-  object.updateMatrixWorld(true);
-  const owned = new Owned();
-  try {
-    const { solids, skipped } = partsOf(wasm, object, owned);
-    if (solids.length === 0)
-      throw new Error(
-        `Nothing to print: no part is a closed solid${skipped.length ? ` (skipped: ${skipped.map((s) => s.part).join(", ")})` : ""}`,
-      );
-    const merged = owned.keep(wasm.Manifold.union(solids));
-    const printed = toPrintCoordinates(merged, unitScale, owned);
-    const mesh = printed.getMesh();
-    const report = reportOf(printed, mesh, solids.length, skipped, owned);
-    return {
-      stl: binaryStl(mesh.vertProperties, mesh.triVerts, mesh.numProp),
-      report,
-    };
-  } finally {
-    owned.free();
-  }
-}
-
-/** The top-level solids of the model: every closed part, and every CSG block
- *  evaluated by manifold. What is left out is recorded in `skipped`. */
-function partsOf(
-  wasm: ManifoldToplevel,
-  object: THREE.Object3D,
   owned: Owned,
-): { solids: Manifold[]; skipped: PrintReport["skipped"] } {
-  const extent = new THREE.Box3()
-    .setFromObject(object)
-    .getSize(new THREE.Vector3())
-    .length();
-  const walk = new PartWalk(wasm, Math.max(extent, 1) * SEAM_WELD, owned);
-  const solids = walk
-    .solidsOf(object)
-    .filter((solid): solid is Manifold => solid !== null);
-  return { solids, skipped: walk.skipped };
-}
-
-/** One pass over a converted tree, in order. `null` stands for a part that was
- *  skipped, so a CSG block can tell when its first operand is missing. */
-class PartWalk {
-  readonly skipped: PrintReport["skipped"] = [];
-  private leaves = 0;
-
-  constructor(
-    private readonly wasm: ManifoldToplevel,
-    private readonly tolerance: number,
-    private readonly owned: Owned,
-  ) {}
-
-  solidsOf(object: THREE.Object3D): (Manifold | null)[] {
-    if (!object.visible) return [];
-    const operation: unknown = object.userData.csgOperation;
-    if (typeof operation === "string") return [this.csgOf(object, operation)];
-    if ((object as THREE.Mesh).isMesh)
-      return this.meshSolids(object as THREE.Mesh);
-    return object.children.flatMap((child) => this.solidsOf(child));
-  }
-
-  private meshSolids(mesh: THREE.Mesh): (Manifold | null)[] {
-    const part = mesh.name || `part ${++this.leaves}`;
-    return bakedWorldGeometries(mesh).map((geometry) => {
-      try {
-        const solid = solidOf(this.wasm, geometry, this.tolerance);
-        if (typeof solid !== "string") return this.owned.keep(solid);
-        this.skipped.push({ part, reason: solid });
-        return null;
-      } finally {
-        geometry.dispose();
-      }
+  skipped: PrintReport["skipped"],
+): CsgEvaluator {
+  return (operation, operands) => {
+    const solids = operands.map((operand) => {
+      const solid = solidOf(wasm, operand.geometry);
+      if (typeof solid !== "string") return owned.keep(solid);
+      skipped.push({ part: partName(operand, operation), reason: solid });
+      return null;
     });
-  }
-
-  /** A CSG block, its operands flattened in order as `convertCSG` flattens
-   *  them: the first is what the others are subtracted from, intersected
-   *  with, or xor-ed against. */
-  private csgOf(group: THREE.Object3D, operation: string): Manifold | null {
-    const operands = group.children.flatMap((child) => this.solidsOf(child));
-    const [first, ...rest] = operands;
+    const [first, ...rest] = solids;
     if (!first) {
-      if (operands.length > 0)
-        this.skipped.push({
-          part: group.name || `${operation} block`,
-          reason: `its first operand is not a closed solid`,
-        });
+      skipped.push({
+        part: `${operation} block`,
+        reason: "its first operand is not a closed solid",
+      });
       return null;
     }
-    return this.combine(
+    const result = combine(
+      wasm,
+      owned,
       operation,
       first,
       rest.filter((solid): solid is Manifold => solid !== null),
     );
-  }
-
-  private combine(
-    operation: string,
-    first: Manifold,
-    rest: Manifold[],
-  ): Manifold {
-    const { Manifold: M } = this.wasm;
-    if (rest.length === 0) return first;
-    switch (operation) {
-      case "union":
-        return this.owned.keep(M.union([first, ...rest]));
-      case "difference":
-        return this.owned.keep(first.subtract(this.owned.keep(M.union(rest))));
-      case "intersection":
-        return this.owned.keep(M.intersection([first, ...rest]));
-      case "xor":
-        return rest.reduce(
-          (acc, next) =>
-            this.owned.keep(
-              this.owned
-                .keep(acc.subtract(next))
-                .add(this.owned.keep(next.subtract(acc))),
-            ),
-          first,
-        );
-      default:
-        // `stencil` repaints the first operand's surface; its shape is the first's.
-        return first;
+    if (result.isEmpty()) {
+      skipped.push({ part: `${operation} block`, reason: "it leaves nothing" });
+      return null;
     }
+    return geometryOf(result);
+  };
+}
+
+const partName = (operand: CsgOperand, operation: string): string =>
+  operand.name || `an operand of ${operation}`;
+
+/** One block's operation, the operands in the order `convertCSG` takes them:
+ *  the first is what the others are subtracted from, intersected with, or
+ *  xor-ed against. */
+function combine(
+  wasm: ManifoldToplevel,
+  owned: Owned,
+  operation: string,
+  first: Manifold,
+  rest: Manifold[],
+): Manifold {
+  const { Manifold: M } = wasm;
+  if (rest.length === 0) return first;
+  switch (operation) {
+    case "union":
+      return owned.keep(M.union([first, ...rest]));
+    case "difference":
+      return owned.keep(first.subtract(owned.keep(M.union(rest))));
+    case "intersection":
+      return owned.keep(M.intersection([first, ...rest]));
+    case "xor":
+      return rest.reduce(
+        (acc, next) =>
+          owned.keep(
+            owned.keep(acc.subtract(next)).add(owned.keep(next.subtract(acc))),
+          ),
+        first,
+      );
+    default:
+      // `stencil` repaints the first operand's surface; its shape is the first's.
+      return first;
   }
 }
 
-/** One baked part as a manifold, or why it cannot be one. */
+/** A manifold as an indexed geometry, positions only. */
+function geometryOf(manifold: Manifold): THREE.BufferGeometry {
+  const mesh = manifold.getMesh();
+  const vertices = mesh.vertProperties.length / mesh.numProp;
+  const positions = new Float32Array(vertices * 3);
+  for (let v = 0; v < vertices; v++)
+    for (let axis = 0; axis < 3; axis++)
+      positions[v * 3 + axis] = at(
+        mesh.vertProperties,
+        v * mesh.numProp + axis,
+      );
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(
+    new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1),
+  );
+  return geometry;
+}
+
+function sceneToPrintableStl(
+  wasm: ManifoldToplevel,
+  object: THREE.Object3D,
+  unitScale: number,
+  owned: Owned,
+  skipped: PrintReport["skipped"],
+): { stl: Uint8Array<ArrayBuffer>; report: PrintReport } {
+  object.updateMatrixWorld(true);
+  const solids = partsOf(wasm, object, owned, skipped);
+  const nothing = (why: string) =>
+    new Error(
+      `Nothing to print: ${why}${skipped.length ? ` (skipped: ${skipped.map((s) => s.part).join(", ")})` : ""}`,
+    );
+  if (solids.length === 0) throw nothing("no part is a closed solid");
+  const merged = owned.keep(wasm.Manifold.union(solids));
+  if (merged.isEmpty()) throw nothing("the model has no volume");
+  const printed = toPrintCoordinates(merged, unitScale, owned);
+  const mesh = printed.getMesh();
+  const report = reportOf(printed, mesh, solids.length, skipped, owned);
+  return {
+    stl: binaryStl(mesh.vertProperties, mesh.triVerts, mesh.numProp),
+    report,
+  };
+}
+
+/** The model's top-level solids: every closed visible mesh, CSG results
+ *  included (the converter has already evaluated those with manifold). */
+function partsOf(
+  wasm: ManifoldToplevel,
+  object: THREE.Object3D,
+  owned: Owned,
+  skipped: PrintReport["skipped"],
+): Manifold[] {
+  const solids: Manifold[] = [];
+  visibleMeshes(object).forEach((mesh, index) => {
+    for (const geometry of bakedWorldGeometries(mesh)) {
+      try {
+        const solid = solidOf(wasm, geometry);
+        if (typeof solid !== "string") solids.push(owned.keep(solid));
+        else
+          skipped.push({
+            part: mesh.name || `part ${index + 1}`,
+            reason: solid,
+          });
+      } finally {
+        geometry.dispose();
+      }
+    }
+  });
+  return solids;
+}
+
+/** One part as a manifold, or why it cannot be one. Seam vertices closer than
+ *  `SEAM_WELD` of the part's own extent are merged first. */
 function solidOf(
   wasm: ManifoldToplevel,
   geometry: THREE.BufferGeometry,
-  tolerance: number,
 ): Manifold | string {
-  const welded = mergeVertices(geometry, tolerance);
+  geometry.computeBoundingBox();
+  const extent =
+    geometry.boundingBox?.getSize(new THREE.Vector3()).length() ?? 0;
+  const welded = mergeVertices(geometry, Math.max(extent, 1) * SEAM_WELD);
   try {
     const position = welded.getAttribute("position");
     const index = welded.index;

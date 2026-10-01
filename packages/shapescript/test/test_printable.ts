@@ -126,6 +126,40 @@ describe("shapeScriptToPrintableStl", () => {
     near([xor.volumeMm3], [1]);
   });
 
+  it("evaluates a CSG block the same placed, stored with define, or returned by a function", async () => {
+    const cut = "difference {\n cube\n cube {\n  size 0.5 2 0.5\n }\n}";
+    for (const script of [
+      cut,
+      `define slot ${cut}\nslot`,
+      "define cutter(s) {\n difference {\n  cube\n  cube {\n   size s 2 s\n  }\n }\n}\ncutter(0.5)",
+    ]) {
+      const { report } = await shapeScriptToPrintableStl(script);
+      assert.equal(report.bodies, 1, script);
+      assert.equal(report.genus, 1, script);
+      near([report.volumeMm3], [0.75]);
+    }
+    // A block inside a block.
+    const nested = await shapeScriptToPrintableStl(
+      "difference {\n union {\n  cube\n  cube {\n   position 1 0 0\n  }\n }\n cube {\n  size 0.5 2 0.5\n }\n}",
+    );
+    near([nested.report.volumeMm3], [1.75]);
+    near(nested.report.sizeMm, [2, 1, 1]);
+  });
+
+  it("refuses a model whose booleans leave nothing, and reports an empty block beside others", async () => {
+    await assert.rejects(
+      shapeScriptToPrintableStl("difference {\n cube\n cube\n}"),
+      /Nothing to print: .*difference block/,
+    );
+    const { report } = await shapeScriptToPrintableStl(
+      "difference {\n cube\n cube\n}\ncube {\n position 3 0 0\n}",
+    );
+    assert.equal(report.parts, 1);
+    assert.deepEqual(report.skipped, [
+      { part: "difference block", reason: "it leaves nothing" },
+    ]);
+  });
+
   it("skips a CSG block whose first operand is not a closed solid", async () => {
     const { report } = await shapeScriptToPrintableStl(
       "difference {\n circle\n cube\n}\ncube {\n position 3 0 0\n}",
