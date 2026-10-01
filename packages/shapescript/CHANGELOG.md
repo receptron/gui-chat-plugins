@@ -14,9 +14,18 @@
   A 10 x 10 x 10 cube lattice (3,630 struts, 1,331 joint spheres) exports as 1 body of genus
   2,300 with no non-manifold edges in about 9 s, as loose parts or inside a `union`. Sealed
   hollows are reported as `cavities`, not as extra bodies; lines and text outlines as skipped.
+- **Faster, lighter printable export for large lattices.** The union is done region by region
+  (manifold's WebAssembly build is single-threaded, and a lattice's parts overlap only their
+  neighbours), parts go to manifold without a separate three.js vertex merge, the report's
+  vertex-merge check uses typed arrays, and inputs are freed once merged. A 20 x 20 x 20 cube
+  lattice (35,721 parts) went from 124 s and 4.8 GB to 53 s and 4.0 GB at `detail 12`, and 31 s
+  and 2.7 GB at `detail 8`; the 10 x 10 x 10 one from 8.6 s to 6.6 s. Same bodies, genus and
+  volume.
 - **Lattice guidance for the agent**: the language prompt and the tool's prompt say to write a
   model of hundreds of parts without a `union` block — the STL export merges them, and the
-  preview cannot evaluate such a union in time — and to make parts overlap where they join.
+  preview cannot evaluate such a union in time — to make parts overlap where they join, and to
+  use `detail 8` for thousands of parts (below 8 the parts intersect into more pieces and the
+  export gets no faster).
 - **A large `union` no longer runs into the vertex ceiling.** A CSG block charged every
   intermediate result and kept them all, so a union of n parts cost about n^2 vertices; it now
   holds and charges only the latest. The time limit is also checked before each boolean, so a

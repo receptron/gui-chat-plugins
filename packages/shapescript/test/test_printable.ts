@@ -202,6 +202,46 @@ describe("shapeScriptToPrintableStl", () => {
     near(report.sizeMm, [43.5, 43.5, 43.5]);
   });
 
+  it("merges a model of thousands of parts region by region, losing none", async () => {
+    // 2,000 unit cubes: 200 separate rows (spaced 2 apart in Y and Z) of 10
+    // cubes overlapping along X, so each row fuses into a 5.5-long bar. Enough
+    // parts for spatialUnion to split into several blocks per axis; a part
+    // dropped or a block merged wrongly changes the bodies or the volume.
+    const script =
+      "for z in 0 to 19 {\n for y in 0 to 9 {\n  for x in 0 to 9 {\n   cube {\n    position (x * 0.5) (y * 2) (z * 2)\n   }\n  }\n }\n}";
+    const { report } = await shapeScriptToPrintableStl(script);
+    assert.equal(report.parts, 2000);
+    assert.equal(report.bodies, 200);
+    near([report.volumeMm3], [1100]);
+    assert.equal(report.nonManifoldEdges, 0);
+  });
+
+  it("merges thousands of parts that share one centre without recursing", async () => {
+    // Every part's centre is the same, so the split puts them all in one block
+    // whatever the block count: 2,000 identical cubes, and 1,200 concentric
+    // ones (codex on #21). Both overflowed the stack.
+    const same = await shapeScriptToPrintableStl(
+      "for i in 0 to 1999 {\n cube\n}",
+    );
+    assert.equal(same.report.parts, 2000);
+    assert.equal(same.report.bodies, 1);
+    near([same.report.volumeMm3], [1]);
+    const nested = await shapeScriptToPrintableStl(
+      "for i in 1 to 1200 {\n cube {\n  size (i / 1200)\n }\n}",
+    );
+    assert.equal(nested.report.bodies, 1);
+    near([nested.report.volumeMm3], [1]);
+  });
+
+  it("merges just over a thousand parts, one block, without recursing", async () => {
+    // 1,200 parts is over SPATIAL_MIN_PARTS but still one block per axis.
+    const script =
+      "for z in 0 to 11 {\n for y in 0 to 9 {\n  for x in 0 to 9 {\n   cube {\n    position (x * 0.5) (y * 2) (z * 2)\n   }\n  }\n }\n}";
+    const { report } = await shapeScriptToPrintableStl(script);
+    assert.equal(report.bodies, 120);
+    near([report.volumeMm3], [660]);
+  });
+
   it("counts a sealed hollow as a cavity, not a second body", async () => {
     const { report } = await shapeScriptToPrintableStl(
       "difference {\n cube\n cube {\n  size 0.5\n }\n}",
