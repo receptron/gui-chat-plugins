@@ -424,6 +424,7 @@ export class Converter {
       shape: (node) => this.shapeValue(node),
       call: (fn, args) => this.callShapeFunction(fn, args),
       retain: (geometry) => this.chargeRetained(geometry),
+      checkBudget: () => this.checkDuration(),
     };
     this.evaluator.maxLoopIterations = this.maxLoopIterations;
     // Initialize with identity transform
@@ -524,17 +525,24 @@ export class Converter {
     return new THREE.Mesh(geometry, material);
   }
 
+  /** Refuse once the conversion has run past `maxDurationMs`. Called between
+   *  nodes, and from inside long `for` expressions through the evaluator's
+   *  `checkBudget` hook. */
+  private checkDuration(): void {
+    if (Date.now() - this.startedAt > this.maxDurationMs) {
+      throw new ShapeScriptLimitError(
+        `ShapeScript took longer than ${this.maxDurationMs}ms to build — simplify the model or use fewer boolean operations`,
+      );
+    }
+  }
+
   private convertNode(node: SceneNode): THREE.Object3D | null {
     // Counted on the way IN, so a runaway loop stops at the limit rather than
     // after building everything it asked for. Only nodes that put an object
     // in the scene are charged: a transform, a colour or a block costs nothing
     // to keep, and a loop of nothing is the iteration and duration caps' job.
     if (GEOMETRY_NODE_TYPES.has(node.type)) this.chargeNode();
-    if (Date.now() - this.startedAt > this.maxDurationMs) {
-      throw new ShapeScriptLimitError(
-        `ShapeScript took longer than ${this.maxDurationMs}ms to build — simplify the model or use fewer boolean operations`,
-      );
-    }
+    this.checkDuration();
     switch (node.type) {
       case "shape":
         return this.convertShape(node);

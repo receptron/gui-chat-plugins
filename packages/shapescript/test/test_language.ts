@@ -5,6 +5,7 @@ import { executePresentShapeScript, samples } from "../src/core/index";
 import { parseShapeScript } from "../src/shapescript/parser";
 import { astToThreeJS, sceneInfoOf } from "../src/shapescript/toThreeJS";
 import { disposeObject3D } from "../src/shapescript/dispose";
+import { Evaluator } from "../src/shapescript/evaluator";
 
 const context = {} as Parameters<typeof executePresentShapeScript>[0];
 function withMesh(script: string, check: (mesh: THREE.Mesh) => void) {
@@ -212,6 +213,65 @@ describe("geometry builders", () => {
         ),
       /longer than/,
     );
+  });
+  it("caps nested `for` expressions as one nest, not loop by loop (#14)", () => {
+    const build = (script: string, maxLoopIterations?: number) =>
+      disposeObject3D(
+        astToThreeJS(
+          parseShapeScript(script),
+          maxLoopIterations === undefined ? {} : { maxLoopIterations },
+        ),
+      );
+    // Each loop is within the per-loop cap of 10; together they are 100.
+    assert.throws(
+      () =>
+        build(
+          "define xs for i in 1 to 10 { for j in 1 to 10 { j } }\ncube",
+          10,
+        ),
+      /Nested `for` expressions exceed 10 iterations in total/,
+    );
+    // The issue's own case, at the default cap: refused, not 10^10 values.
+    assert.throws(
+      () =>
+        build(
+          "define xs for i in 1 to 100000 { for j in 1 to 100000 { 0 } }\ncube",
+        ),
+      /Nested `for` expressions exceed 100000 iterations in total/,
+    );
+    // Separate expressions each get the whole budget again.
+    build(
+      "define a for i in 1 to 6 { i }\ndefine b for i in 1 to 6 { i }\ncube",
+      10,
+    );
+    // A nest inside the cap still builds: 2 outer + 6 inner iterations.
+    build("define xs for i in 1 to 2 { for j in 1 to 3 { j } }\ncube", 10);
+  });
+  it("hands the converter its clock check from inside a long `for` expression (#14)", () => {
+    // Through the evaluator directly: in a conversion the node-level check
+    // runs first, so a test there could pass without the hook ever firing.
+    const node = parseShapeScript(
+      "define xs for i in 1 to 50 { for j in 1 to 50 { j } }",
+    )[0];
+    assert.ok(node?.type === "define" && node.value);
+    const expression = node.value;
+    const evaluator = new Evaluator();
+    let checks = 0;
+    evaluator.hooks = {
+      shape: () => 0,
+      call: () => 0,
+      retain: () => undefined,
+      checkBudget: () => {
+        checks++;
+      },
+    };
+    evaluator.evaluate(expression);
+    // 50 + 50 * 50 = 2550 iterations, checked every 1024.
+    assert.equal(checks, 2);
+    evaluator.hooks.checkBudget = () => {
+      throw new Error("out of time");
+    };
+    assert.throws(() => evaluator.evaluate(expression), /out of time/);
   });
   it("refuses a lathe profile that samples to nothing", () => {
     for (const script of [

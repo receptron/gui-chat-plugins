@@ -82,7 +82,14 @@ export interface EvaluatorHooks {
   /** A geometry a builtin allocated that stays alive as a value: charged
    *  against the vertex budget by the converter, or refused. */
   retain(geometry: THREE.BufferGeometry): void;
+  /** Called every `BUDGET_CHECK_INTERVAL` iterations of a `for` expression:
+   *  the converter's wall-clock check, which otherwise runs only between
+   *  scene nodes and so never gets a turn inside one long expression. */
+  checkBudget?(): void;
 }
+
+/** How often a `for` expression hands control to `EvaluatorHooks.checkBudget`. */
+const BUDGET_CHECK_INTERVAL = 1024;
 
 /** Upstream's predefined colour constants (materials.md), as RGB tuples. A
  *  script may `define red …` over them. */
@@ -609,12 +616,33 @@ export class Evaluator {
   private callDepth = 0;
   /** Set by the converter, which owns geometry. */
   hooks: EvaluatorHooks | undefined;
-  /** The same per-loop ceiling the converter applies to `for` statements. */
+  /** The same per-loop ceiling the converter applies to `for` statements.
+   *  For `for` EXPRESSIONS it is also the ceiling of a whole nest: each loop
+   *  alone was capped, but nested loops multiply, so `for i in 1 to 100000
+   *  { for j in 1 to 100000 { j } }` passed both checks and tried to build
+   *  10^10 values (gui-chat-plugins#14). */
   maxLoopIterations = DEFAULT_MAX_FOR_EXPRESSION_ITERATIONS;
+  /** How deep the `for` expressions being evaluated are nested. */
+  private forExpressionDepth = 0;
+  /** Iterations run by the outermost `for` expression in progress and every
+   *  one nested in it, reset when a new outermost one starts. */
+  private forExpressionWork = 0;
 
   constructor(symbols?: SymbolTable, seed?: number) {
     this.symbols = symbols || new SymbolTable(seed);
     if (seed !== undefined) this.symbols.reseed(seed);
+  }
+
+  /** Count one iteration of a `for` expression against the nest's shared
+   *  ceiling, and let the converter check its clock now and then. */
+  private chargeForExpressionIteration(): void {
+    if (++this.forExpressionWork > this.maxLoopIterations) {
+      throw new Error(
+        `Nested \`for\` expressions exceed ${this.maxLoopIterations} iterations in total — use smaller ranges, or a \`for\` statement for geometry`,
+      );
+    }
+    if (this.forExpressionWork % BUDGET_CHECK_INTERVAL === 0)
+      this.hooks?.checkBudget?.();
   }
 
   private random(): number {
@@ -851,14 +879,18 @@ export class Evaluator {
               `\`for\` expression exceeds ${this.maxLoopIterations} iterations`,
             ),
         );
+        if (this.forExpressionDepth === 0) this.forExpressionWork = 0;
+        this.forExpressionDepth++;
         this.symbols.pushScope();
         try {
           return values.map((value) => {
+            this.chargeForExpressionIteration();
             this.symbols.set(expr.variable, value);
             return this.evaluate(expr.body);
           });
         } finally {
           this.symbols.popScope();
+          this.forExpressionDepth--;
         }
       }
 
