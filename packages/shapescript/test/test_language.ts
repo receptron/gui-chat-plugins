@@ -214,6 +214,31 @@ describe("geometry builders", () => {
       /longer than/,
     );
   });
+  it("charges a CSG block for what it holds, not for every intermediate result", () => {
+    // 20 separate cubes in one union. Each step's result is about 36 vertices
+    // per cube so far, so charging every intermediate costs ~36 * (2 + ... + 20)
+    // = ~7500, while the result plus the operands is under 1500.
+    const cubes = Array.from(
+      { length: 20 },
+      (_, i) => `  cube {\n    position ${i * 2} 0 0\n  }`,
+    ).join("\n");
+    const script = `union {\n${cubes}\n}`;
+    const group = astToThreeJS(parseShapeScript(script), { maxVertices: 3000 });
+    try {
+      const box = new THREE.Box3().setFromObject(group);
+      near(box.getSize(new THREE.Vector3()).toArray(), [39, 1, 1]);
+    } finally {
+      disposeObject3D(group);
+    }
+    // Still refused when the parts themselves are over the ceiling.
+    assert.throws(
+      () =>
+        disposeObject3D(
+          astToThreeJS(parseShapeScript(script), { maxVertices: 400 }),
+        ),
+      /vertices/,
+    );
+  });
   it("applies every `size` component to cylinder, cone, circle and polygon (#18)", () => {
     const sizeOf = (script: string): number[] => {
       const group = astToThreeJS(parseShapeScript(script));

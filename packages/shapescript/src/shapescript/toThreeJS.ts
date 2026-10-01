@@ -1701,13 +1701,43 @@ export class Converter {
       if (firstBrush === undefined)
         throw new Error("CSG operation needs at least one child shape");
       let result = firstBrush;
+      // The results this block's booleans produced and are still holding,
+      // with the vertices each was charged. Only the latest survives a step:
+      // charging and keeping every intermediate made a union of n parts cost
+      // ~n^2 vertices rather than its own size, which is how a lattice
+      // `union` hit the vertex ceiling. Operands are not in here — they are
+      // charged where they were built and freed with the scratch at the end.
+      const intermediates = new Map<Brush, number>();
+      const produce = (brush: Brush): Brush => {
+        const count = brush.geometry.getAttribute("position")?.count ?? 0;
+        this.chargeEstimate(count);
+        this.vertexCount += count;
+        intermediates.set(brush, count);
+        return brush;
+      };
+      // Free every intermediate but `keep` and give back its charge. By
+      // geometry only: materials are the operands', still in use.
+      const releaseIntermediates = (keep: Brush): void => {
+        for (const [brush, count] of intermediates) {
+          if (brush === keep) continue;
+          brush.geometry.dispose();
+          this.vertexCount -= count;
+          intermediates.delete(brush);
+        }
+      };
 
       for (let i = 1; i < brushes.length; i++) {
         const brush = brushes[i];
         if (brush === undefined) continue;
+        // The clock is otherwise checked only between scene nodes, and a whole
+        // fold is one node. Once intermediates stopped piling up against the
+        // vertex ceiling, that ceiling no longer cut a big union short: a
+        // 200-part lattice ran for minutes. One boolean cannot be interrupted,
+        // but the next is not started.
+        this.checkDuration();
 
-        // Every `evaluate()` allocates a fresh geometry, and the operand it
-        // replaces stops being reachable — so record each one.
+        // Every `evaluate()` allocates a fresh geometry; the operands are
+        // recorded for the final cleanup, the result is an intermediate.
         const evaluate = (
           a: Brush,
           b: Brush,
@@ -1716,12 +1746,7 @@ export class Converter {
           scratch.push(a, b);
           const produced = csgEvaluator.evaluate(a, b, operation);
           scratch.push(produced);
-          this.chargeEstimate(
-            produced.geometry.getAttribute("position")?.count ?? 0,
-          );
-          this.vertexCount +=
-            produced.geometry.getAttribute("position")?.count ?? 0;
-          return produced;
+          return produce(produced);
         };
 
         switch (node.operation) {
@@ -1790,16 +1815,15 @@ export class Converter {
                   part.geometry.index?.count ??
                   part.geometry.getAttribute("position").count;
               }
-              result = new Brush(geometry, materials);
+              result = produce(new Brush(geometry, materials));
               scratch.push(result);
-              this.chargeEstimate(geometry.getAttribute("position").count);
-              this.vertexCount += geometry.getAttribute("position").count;
             } finally {
               geometries.forEach((geometry) => geometry.dispose());
             }
             break;
           }
         }
+        releaseIntermediates(result);
       }
 
       // Ensure the result has a proper material
