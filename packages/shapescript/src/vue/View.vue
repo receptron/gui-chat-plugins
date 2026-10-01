@@ -176,6 +176,7 @@ import { shapeScriptToStl, STL_EXTENSION, STL_MIME_TYPE } from "../export/stl";
 import type { Messages } from "../lang/messages";
 import { slugify } from "../core/paths";
 import { useT } from "../lang";
+import { resultKey, SourceSync } from "./sourceSync";
 
 interface CameraState {
   position?: { x: number; y: number; z: number };
@@ -224,10 +225,10 @@ let copiedTimeout: number | null = null;
 /** Set by `cleanup()`, so a clipboard write still pending at unmount does not
  *  set state or start a timer on a component that is gone. */
 let disposed = false;
-/** Bumped by every operation that establishes what the source now IS, so an
- *  older in-flight read can tell that it has been superseded. Not a ref: no
- *  template reads it, and reactivity would only invite a watcher. */
-let sourceGeneration = 0;
+/** Which in-flight read or write may still change what this View shows, and
+ *  the order writes reach the host in. Not reactive: no template reads it. */
+const sourceSync = new SourceSync();
+const currentKey = (): string => resultKey(props.selectedResult);
 const showWireframe = ref(false);
 const showGrid = ref(true);
 
@@ -403,14 +404,15 @@ async function refreshFromDisk(): Promise<void> {
   // token a load that started BEFORE the save resolves after it, and the
   // pre-save script is emitted over the freshly-written one — the edit
   // silently reverts in the session (CodeRabbit on #3056).
-  const token = ++sourceGeneration;
+  const ticket = sourceSync.begin(currentKey());
   try {
     const { script } = await dispatch(
       { kind: "loadShape", path: filePath },
       readLoadShapeResult,
     );
-    // Superseded by an edit or an Apply while the read was in flight.
-    if (token !== sourceGeneration) return;
+    // Superseded by an edit or an Apply while the read was in flight, or the
+    // View now shows another result.
+    if (!sourceSync.isCurrent(ticket, currentKey())) return;
     if (script === props.selectedResult.data?.script) return;
     editableScript.value = script;
     emit("updateResult", {
@@ -750,7 +752,7 @@ function handleScriptEdit() {
   // does do is take ownership of the buffer: a `loadShape` started at mount can
   // still be in flight, and without invalidating it here the disk copy lands on
   // top of whatever the user has just typed (codex on #3056).
-  sourceGeneration++;
+  sourceSync.supersede();
 }
 
 async function applyScript() {
@@ -771,21 +773,27 @@ async function applyScript() {
   // render a script the next `loadShape` cannot find. A host with no file
   // layer leaves `filePath` unset and the result stays the only copy.
   const filePath = props.selectedResult.data?.filePath;
-  const token = ++sourceGeneration;
+  const ticket = sourceSync.begin(currentKey());
   if (filePath) {
     try {
-      await dispatch(
-        { kind: "saveShape", path: filePath, script },
-        readSaveShapeResult,
+      // Queued behind any save still in flight, so a later Apply's script is
+      // the one the host writes last.
+      await sourceSync.enqueue(() =>
+        dispatch(
+          { kind: "saveShape", path: filePath, script },
+          readSaveShapeResult,
+        ),
       );
     } catch (error) {
+      // A newer Apply superseded this one; its outcome is the one to report.
+      if (!sourceSync.isCurrent(ticket, currentKey())) return;
       saveError.value = error instanceof Error ? error.message : String(error);
       return;
     }
   }
   // Another apply (or a refresh) landed while this one was writing — that one
-  // owns the result now.
-  if (token !== sourceGeneration) return;
+  // owns the result now — or the View now shows another result.
+  if (!sourceSync.isCurrent(ticket, currentKey())) return;
   saveError.value = null;
 
   // Update the result (preserve existing viewState); the watch re-renders.
@@ -806,6 +814,10 @@ watch(
     if (newScript !== undefined) editableScript.value = newScript;
   },
 );
+
+// Another result shown in this View makes every read and write in flight
+// stale (gui-chat-plugins#16).
+watch(currentKey, () => sourceSync.supersede());
 
 // Watch for selectedResult changes to restore camera state
 watch(
