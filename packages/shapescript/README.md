@@ -130,6 +130,12 @@ own (`@gltf-transform/*`, `commander`, … for its CAD tooling, which this packa
 Wire the tool like the USDZ one, with the same `{ files }` context and
 `EXPORT_STL_TOOL_TIMEOUT_MS`.
 
+**Lattices.** A lattice of hundreds of struts and joints is best written as loose parts, with
+no `union` block: this export merges them into one solid (a 10 x 10 x 10 cube lattice — 3,630
+struts and 1,331 joint spheres — exports as 1 body of genus 2,300 in about 9 s), while the
+preview still evaluates a `union` with three-bvh-csg, which is too slow for hundreds of parts and
+is refused at the time limit. The tool and the language prompt both tell the agent so.
+
 The View's **Download → STL** still writes the displayed model (`shapeScriptToStl`); it does not
 load manifold in the browser yet.
 

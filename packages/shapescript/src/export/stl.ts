@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { exportShapeScript, type ExportOptions } from "./model";
+import { reverseWinding } from "../shapescript/winding";
 
 /** The MIME type a `.stl` is served / downloaded as (IANA's registration). */
 export const STL_MIME_TYPE = "model/stl";
@@ -96,22 +97,6 @@ function bakedWorldGeometry(
   if (source.index) geometry.setIndex(source.index.clone());
   if (transform.determinant() < 0) reverseWinding(geometry);
   return geometry;
-}
-
-/** Swap the second and third vertex of every triangle in place. */
-function reverseWinding(geometry: THREE.BufferGeometry): void {
-  const attribute = geometry.index ?? geometry.getAttribute("position");
-  for (let face = 0; face * 3 < attribute.count; face++) {
-    for (let k = 0; k < attribute.itemSize; k++) {
-      const b = attribute.getComponent(face * 3 + 1, k);
-      attribute.setComponent(
-        face * 3 + 1,
-        k,
-        attribute.getComponent(face * 3 + 2, k),
-      );
-      attribute.setComponent(face * 3 + 2, k, b);
-    }
-  }
 }
 
 /** The meshes under `object` that are shown: none below a hidden node. */

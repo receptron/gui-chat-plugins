@@ -84,6 +84,7 @@ import {
 import { disposeObject3D, disposeScratch } from "./dispose";
 import { minkowskiSum } from "./minkowski";
 import { at, defined } from "./at";
+import { reverseWinding } from "./winding";
 
 /** What a conversion reports besides geometry. Stored on the root group's
  *  `userData` so both viewers and the tool result can read it. */
@@ -281,6 +282,23 @@ function stretchedY(
   return target !== diameter
     ? geometry.scale(1, target / diameter, 1)
     : geometry;
+}
+
+/** One CSG operand for a `csgEvaluator`: its positions and triangles in the
+ *  block's space. A mirroring transform (a negative determinant, `scale -1 1 1`)
+ *  turns every triangle inside out, which the renderer hides by drawing back
+ *  faces — an evaluator reading the winding as outward would not, so it is
+ *  reversed here, as the STL export reverses it. */
+function operandGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    mesh.geometry.getAttribute("position").clone(),
+  );
+  if (mesh.geometry.index) geometry.setIndex(mesh.geometry.index.clone());
+  geometry.applyMatrix4(mesh.matrixWorld);
+  if (mesh.matrixWorld.determinant() < 0) reverseWinding(geometry);
+  return geometry;
 }
 
 export const DEFAULT_MAX_NODES = 100_000;
@@ -585,7 +603,7 @@ export class Converter {
     savedMatrix: THREE.Matrix4,
   ): THREE.Object3D {
     const operands = meshes.map((mesh) => ({
-      geometry: mesh.geometry.clone().applyMatrix4(mesh.matrixWorld),
+      geometry: operandGeometry(mesh),
       name: mesh.name,
     }));
     try {

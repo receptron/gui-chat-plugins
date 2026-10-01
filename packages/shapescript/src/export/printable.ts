@@ -39,6 +39,9 @@ export interface PrintReport {
   skipped: { part: string; reason: string }[];
   /** Separate solids in the result. 1 is one printable object. */
   bodies: number;
+  /** Sealed hollows inside a body: a cube minus a smaller cube inside it.
+   *  Not loose pieces — the inner surface of one solid — so not in `bodies`. */
+  cavities: number;
   /** Handles (through-holes) in the result: struts - nodes + 1 for a lattice. */
   genus: number;
   volumeMm3: number;
@@ -267,7 +270,25 @@ function partsOf(
       }
     }
   });
+  visibleLines(object).forEach((line, index) =>
+    skipped.push({
+      part: line.name || `line ${index + 1}`,
+      reason: "a line or outline, not a solid",
+    }),
+  );
   return solids;
+}
+
+/** The lines and points under `object` that are shown — an open `path`, a
+ *  `text` outline. They have no volume, so they are not printed; listing them
+ *  keeps the report from claiming everything was (codex on #20). */
+function visibleLines(object: THREE.Object3D): THREE.Object3D[] {
+  if (!object.visible) return [];
+  const flat =
+    (object as THREE.Line).isLine || (object as THREE.Points).isPoints
+      ? [object]
+      : [];
+  return flat.concat(...object.children.map(visibleLines));
 }
 
 /** One part as a manifold, or why it cannot be one. Seam vertices closer than
@@ -340,13 +361,20 @@ function reportOf(
     max[1] - min[1],
     max[2] - min[2],
   ];
-  const bodies = printed.decompose().map((body) => owned.keep(body)).length;
+  // decompose() answers a sealed hollow's inner surface as a component of
+  // its own, with negative volume; only the positive ones are separate solids.
+  const volumes = printed
+    .decompose()
+    .map((component) => owned.keep(component).volume());
+  const bodies = volumes.filter((volume) => volume > 0).length;
+  const cavities = volumes.filter((volume) => volume < 0).length;
   const nonManifoldEdges = weldedNonManifoldEdges(mesh);
   const report: PrintReport = {
     sizeMm,
     parts,
     skipped,
     bodies,
+    cavities,
     genus: printed.genus(),
     volumeMm3: printed.volume(),
     triangles: mesh.triVerts.length / 3,

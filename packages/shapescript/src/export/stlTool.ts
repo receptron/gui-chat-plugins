@@ -20,7 +20,7 @@ export const EXPORT_STL_DESCRIPTION =
   "Export a ShapeScript model as a binary STL for 3D printing and save it under artifacts/shapes/. Every top-level solid is merged into one watertight solid (no `union` needed), written in millimetres, Z up, resting on Z = 0. `unitScale` is millimetres per ShapeScript unit (default 1, so `cube` is a 1 mm cube). Parts that are not closed solids (a flat circle, fill, open path, text outline) are skipped and listed. Returns the saved path and a printability report: size in mm, parts merged and skipped, bodies, genus, volume, non-manifold edges and warnings. Takes the same source as presentShapeScript: inline `script`, or `path` to a saved .shape file.";
 
 export const EXPORT_STL_PROMPT =
-  "Use exportShapeScriptStl when the user wants to 3D-print a model or needs an STL for a slicer. Ask what size they want if it matters, and pass `unitScale` (mm per ShapeScript unit) rather than rewriting the script. Relay the report's warnings: non-manifold edges mean parts only touch and should overlap, more than one body means loose pieces, skipped parts are flat or open and will not print. Fix the model and export again when the user wants a clean print.";
+  "Use exportShapeScriptStl when the user wants to 3D-print a model or needs an STL for a slicer. Ask what size they want if it matters, and pass `unitScale` (mm per ShapeScript unit) rather than rewriting the script. Relay the report's warnings: non-manifold edges mean parts only touch and should overlap, more than one body means loose pieces, skipped parts are flat or open and will not print. Fix the model and export again when the user wants a clean print. For a lattice or any model of hundreds of parts, write the parts without a `union` block: this export merges them into one solid, and the preview cannot evaluate such a union in time.";
 
 export const EXPORT_STL_SCHEMA = {
   type: "object" as const,
@@ -72,7 +72,7 @@ const millimetres = (value: number): string =>
 export function describePrintReport(report: PrintReport): string {
   const [x, y, z] = report.sizeMm.map(millimetres);
   const lines = [
-    `Size ${x} x ${y} x ${z} mm, ${report.bodies} ${report.bodies === 1 ? "body" : "bodies"}, genus ${report.genus}, volume ${millimetres(report.volumeMm3)} mm3, ${report.triangles} triangles.`,
+    `Size ${x} x ${y} x ${z} mm, ${report.bodies} ${report.bodies === 1 ? "body" : "bodies"}${report.cavities ? ` (${report.cavities} sealed ${report.cavities === 1 ? "cavity" : "cavities"})` : ""}, genus ${report.genus}, volume ${millimetres(report.volumeMm3)} mm3, ${report.triangles} triangles.`,
     `${report.parts} part(s) merged, ${report.skipped.length} skipped; ${report.nonManifoldEdges} non-manifold edges.`,
   ];
   for (const warning of report.warnings) lines.push(`Warning: ${warning}`);

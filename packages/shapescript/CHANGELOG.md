@@ -11,6 +11,12 @@
   and skipped (flat or open parts, by name), bodies, genus, volume, non-manifold edges after a
   slicer-style merge, and warnings. `shapeScriptToPrintableStl` is the same without the tool.
   manifold is a new dependency, loaded on first use. The View's Download -> STL is unchanged.
+  A 10 x 10 x 10 cube lattice (3,630 struts, 1,331 joint spheres) exports as 1 body of genus
+  2,300 with no non-manifold edges in about 9 s, as loose parts or inside a `union`. Sealed
+  hollows are reported as `cavities`, not as extra bodies; lines and text outlines as skipped.
+- **Lattice guidance for the agent**: the language prompt and the tool's prompt say to write a
+  model of hundreds of parts without a `union` block — the STL export merges them, and the
+  preview cannot evaluate such a union in time — and to make parts overlap where they join.
 - **A large `union` no longer runs into the vertex ceiling.** A CSG block charged every
   intermediate result and kept them all, so a union of n parts cost about n^2 vertices; it now
   holds and charges only the latest. The time limit is also checked before each boolean, so a

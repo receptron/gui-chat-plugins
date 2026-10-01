@@ -171,6 +171,74 @@ describe("shapeScriptToPrintableStl", () => {
     );
   });
 
+  it("prints the proposal's 4 x 4 x 4 lattice as one body of genus 176", async () => {
+    // As the proposal built it: 75 struts, each one whole lattice line (4
+    // cells long), and 125 joint spheres — 200 parts, no union. The graph has
+    // 300 cell edges on 125 nodes, so genus 300 - 125 + 1 = 176.
+    const lines = ["detail 12"];
+    const nodes = [0, 1, 2, 3, 4];
+    for (const a of nodes)
+      for (const b of nodes) {
+        lines.push(`cylinder {\n size 0.2 4 0.2\n position ${a} 2 ${b}\n}`);
+        lines.push(
+          `cylinder {\n size 0.2 4 0.2\n position 2 ${a} ${b}\n orientation 0.5 0 0\n}`,
+        );
+        lines.push(
+          `cylinder {\n size 0.2 4 0.2\n position ${a} ${b} 2\n orientation 0 0 0.5\n}`,
+        );
+      }
+    for (const x of nodes)
+      for (const y of nodes)
+        for (const z of nodes)
+          lines.push(`sphere {\n size 0.35\n position ${x} ${y} ${z}\n}`);
+    const { report } = await shapeScriptToPrintableStl(lines.join("\n"), {
+      unitScale: 10,
+    });
+    assert.equal(report.parts, 200);
+    assert.equal(report.bodies, 1);
+    assert.equal(report.genus, 176);
+    assert.equal(report.nonManifoldEdges, 0);
+    assert.deepEqual(report.warnings, []);
+    near(report.sizeMm, [43.5, 43.5, 43.5]);
+  });
+
+  it("counts a sealed hollow as a cavity, not a second body", async () => {
+    const { report } = await shapeScriptToPrintableStl(
+      "difference {\n cube\n cube {\n  size 0.5\n }\n}",
+    );
+    assert.equal(report.bodies, 1);
+    assert.equal(report.cavities, 1);
+    near([report.volumeMm3], [0.875]);
+    assert.deepEqual(report.warnings, []);
+  });
+
+  it("corrects a mirrored operand's winding before evaluating the block", async () => {
+    // Under `scale -1 1 1` the outer cube's triangles face inwards; read as
+    // they are, the difference came out as two bodies of negative volume.
+    const { report } = await shapeScriptToPrintableStl(
+      "difference {\n scale -1 1 1\n cube\n cube {\n  size 0.5\n }\n}",
+    );
+    assert.equal(report.bodies, 1);
+    assert.equal(report.cavities, 1);
+    near([report.volumeMm3], [0.875]);
+  });
+
+  it("lists lines and text outlines as skipped", async () => {
+    for (const script of [
+      "cube\npath {\n point 2 0\n point 3 1\n}",
+      'cube\ntext "label"',
+    ]) {
+      const { report } = await shapeScriptToPrintableStl(script);
+      assert.equal(report.parts, 1, script);
+      assert.deepEqual(
+        report.skipped.map((entry) => entry.reason),
+        ["a line or outline, not a solid"],
+        script,
+      );
+      assert.match(report.warnings.join("\n"), /skipped/);
+    }
+  });
+
   it("warns about parts that only touch along an edge", async () => {
     const { report } = await shapeScriptToPrintableStl(
       "cube\ncube {\n position 1 1 0\n}",
