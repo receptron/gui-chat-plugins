@@ -199,6 +199,28 @@ describe("csgEngine manifold", () => {
     assert.deepEqual([...manifold.area], [...bvh.area]);
   });
 
+  it("lets a block that falls back take a manifold result as an operand (codex on #24)", () => {
+    // The inner union goes through manifold; the outer difference has a flat
+    // operand, so it falls back to three-bvh-csg, which needs a uv attribute
+    // on every operand. A cube and a sphere: no coplanar faces, where the
+    // engines may legitimately keep different ones.
+    const script =
+      "detail 32\ndifference {\n union {\n  cube {\n   color red\n  }\n  sphere {\n   color blue\n   position 0.5 0 0\n  }\n }\n circle {\n  size 0.5\n }\n}";
+    const bvh = surfaces(script, "three-bvh-csg");
+    const manifold = surfaces(script, "manifold");
+    assert.deepEqual(
+      [...manifold.area.keys()].sort(),
+      [...bvh.area.keys()].sort(),
+    );
+    for (const [colour, expected] of bvh.area) {
+      const actual = manifold.area.get(colour) ?? 0;
+      assert.ok(
+        Math.abs(actual - expected) <= expected * 1e-3,
+        `${colour}: ${actual} against ${expected}`,
+      );
+    }
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];

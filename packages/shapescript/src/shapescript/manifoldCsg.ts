@@ -247,6 +247,16 @@ function geometryOf(
     new THREE.Float32BufferAttribute(positions, 3),
   );
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  // three-bvh-csg needs position, normal and uv on every operand, and a block
+  // that falls back to it may take this result as one (codex on #24). Nothing
+  // reads the coordinates — `texture` is not supported — so zeros will do.
+  geometry.setAttribute(
+    "uv",
+    new THREE.Float32BufferAttribute(
+      new Float32Array((positions.length / 3) * 2),
+      2,
+    ),
+  );
   let start = 0;
   for (const { slot, triangles } of runs) {
     const last = geometry.groups.at(-1);
