@@ -297,8 +297,9 @@ export interface ManageShapeScriptContext extends ShapeScriptDispatchContext {
    *  Chromium download). Supplied from `@gui-chat-plugin/shapescript/render`.
    *  The picture is best effort because the gallery tolerates its absence: a
    *  card without one shows the model icon, and the post's owner can add one
-   *  from the web editor. */
-  renderThumbnail: (script: string) => Promise<Uint8Array | null>;
+   *  from the web editor. Optional, as the README says: a host that cannot
+   *  rasterise at all leaves it out, and every post goes up without one. */
+  renderThumbnail?: (script: string) => Promise<Uint8Array | null>;
   /** A fault that did not stop the call — a thumbnail that could not be made. */
   onWarning?: (message: string) => void;
 }
@@ -503,7 +504,9 @@ async function thumbnailFor(
   script: string,
 ): Promise<string> {
   try {
-    const png = await context.renderThumbnail(script);
+    const png = context.renderThumbnail
+      ? await context.renderThumbnail(script)
+      : null;
     return png ? await gallery.uploadThumbnail(id, png) : "";
   } catch (error) {
     context.onWarning?.(`thumbnail skipped: ${messageOf(error)}`);

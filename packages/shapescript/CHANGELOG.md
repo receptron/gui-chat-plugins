@@ -13,3 +13,11 @@
   `artifacts/shapes/` goes through (`files.byPath`) is a local copy of MulmoClaude's
   `classifyFilePath`, since the protocol doesn't define `byPath`.
 - The README says what a host provides, and what each tool does without it.
+- **Fixed: a script could inject markup into the render page.** `./render` put the scene into an
+  inline `<script>` with `JSON.stringify`, which leaves `</script>` alone, so an object `name` or
+  `print` text holding it ended the element and the rest ran in the headless browser — able to
+  replace the PNG. The page now escapes `<` in everything it interpolates (`scriptJson`). 7.1.0
+  has this bug.
+- **`renderThumbnail` is optional** in `manageShapeScript`'s context, as a capability a host may not
+  have; without it every post goes up without a picture. Before, a host had to pass a function
+  that answered `null`.

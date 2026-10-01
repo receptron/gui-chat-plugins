@@ -460,6 +460,23 @@ describe("manageShapeScript tool", () => {
       assert.match(result.message, /No thumbnail could be attached/);
     });
 
+    it("posts without a picture when the host passes no renderThumbnail at all", async () => {
+      const { writer, posts, uploads } = fakeGallery();
+      const { files } = memoryFiles();
+      const context: ManageShapeScriptContext = {
+        files: { artifacts: files },
+        gallery: writer,
+      };
+      const result = await publishAgreed(context, {
+        title: "Lamp",
+        script: CUBE,
+      });
+      assert.equal(posts.size, 1);
+      assert.equal(result.action === "publish" && result.thumbnail, false);
+      assert.equal([...posts.values()][0]?.thumbnailId, "");
+      assert.deepEqual(uploads, []);
+    });
+
     it("posts without a picture when the thumbnail fails, and says so as a warning", async () => {
       const { writer, posts } = fakeGallery();
       const warnings: string[] = [];

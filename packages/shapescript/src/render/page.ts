@@ -34,6 +34,16 @@ export interface RenderPageOptions {
   projection: "perspective" | "orthographic";
 }
 
+/** `value` as JSON that is safe inside an inline `<script>`. `JSON.stringify`
+ *  leaves `<` alone, so a string holding `</script>` — an object `name` or
+ *  `print` text from the script, which reach the page through `toJSON()` —
+ *  would end the element and let the rest run as markup in the renderer.
+ *  `\u003c` is the same character to the JavaScript parser, so the value reads
+ *  back unchanged. */
+export function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 /** Tile the views into the squarest grid that holds them (1→1x1, 2→2x1, 4→2x2). */
 export function gridFor(count: number): { columns: number; rows: number } {
   const columns = Math.ceil(Math.sqrt(count));
@@ -44,7 +54,7 @@ export function gridFor(count: number): { columns: number; rows: number } {
  *  sheet, and light the scene. Split from `drawScript` only because one
  *  template literal of the whole browser program is unreadable. */
 function sceneScript(threeUrl: string, config: string, grid: string): string {
-  return `import { AmbientLight, Box3, Color, DirectionalLight, GridHelper, MathUtils, ObjectLoader, OrthographicCamera, PerspectiveCamera, Scene, Sphere, Vector3, WebGLRenderer } from ${JSON.stringify(threeUrl)};
+  return `import { AmbientLight, Box3, Color, DirectionalLight, GridHelper, MathUtils, ObjectLoader, OrthographicCamera, PerspectiveCamera, Scene, Sphere, Vector3, WebGLRenderer } from ${scriptJson(threeUrl)};
 
 const config = ${config};
 const { columns, rows } = ${grid};
@@ -131,12 +141,12 @@ renderer.dispose();
 window.__shapeSheet = sheet.toDataURL("image/png");`;
 }
 
-/** Assemble the page. `JSON.stringify` is the only interpolation into script
+/** Assemble the page. `scriptJson` is the only interpolation into script
  *  context — the caller's numbers and labels never reach the page as code. */
 export function buildRenderPage(options: RenderPageOptions): string {
   const { threeUrl, sceneJson, views, width, height, zoom, projection } =
     options;
-  const config = JSON.stringify({
+  const config = scriptJson({
     views,
     width,
     height,
@@ -144,7 +154,7 @@ export function buildRenderPage(options: RenderPageOptions): string {
     projection,
     scene: sceneJson,
   });
-  const script = `${sceneScript(threeUrl, config, JSON.stringify(gridFor(views.length)))}\n${drawScript()}`;
+  const script = `${sceneScript(threeUrl, config, scriptJson(gridFor(views.length)))}\n${drawScript()}`;
   return `<!doctype html>
 <meta charset="utf-8">
 <style>html,body{margin:0;background:#ffffff}</style>
