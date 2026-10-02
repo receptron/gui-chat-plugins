@@ -225,7 +225,6 @@ function stencil(
   const own = (manifold: Manifold) => manifold !== first.manifold;
   try {
     for (const cutter of cutters) {
-      checkBudget();
       pieces = pieces.flatMap((piece) => {
         const [inside, outside] = piece.manifold.split(cutter.manifold);
         if (own(piece.manifold)) piece.manifold.delete();
@@ -243,6 +242,10 @@ function stencil(
           });
         return halves;
       });
+      // After the split, not before: isEmpty() above evaluated it, so the time
+      // is spent, and the last cutter must not slip past the limit
+      // (codex on #24). The evaluator checked once before the first.
+      checkBudget();
     }
     return geometryOf(pieces, slotOf, new Set(first.ids));
   } finally {

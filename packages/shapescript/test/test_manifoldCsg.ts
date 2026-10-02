@@ -283,6 +283,25 @@ describe("csgEngine manifold", () => {
       );
   });
 
+  it("holds a stencil's last cutter to maxDurationMs (codex on #24)", () => {
+    // A detail-256 sphere: its operands are built and converted in ~100 ms,
+    // the split takes the rest of ~250 ms. With a 150 ms limit the check
+    // before the cutter passes, so only a check after the split refuses it;
+    // the previous code returned it at every limit from 150 to 250 ms.
+    const script =
+      "detail 256\nstencil {\n sphere\n cube {\n  size 0.6 2 2\n }\n}";
+    assert.throws(
+      () =>
+        disposeObject3D(
+          astToThreeJS(parseShapeScript(script), {
+            csgEngine: "manifold",
+            maxDurationMs: 150,
+          }),
+        ),
+      /longer than 150ms/,
+    );
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];
