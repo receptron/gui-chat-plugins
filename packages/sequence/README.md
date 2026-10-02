@@ -47,9 +47,10 @@ asks the model to go on when it ends a reply mid-slideshow, and passes `keeper.u
 `context.userSpokeAt`. A slideshow needs it: a slide's instructions ask the model only to explain
 the slide, in a reply of its own, and the keeper asks for the next one when that reply ends (asked
 for both in one reply, voice models announced the next slide instead of explaining this one).
-Without a keeper the slideshow stops after each slide until the user says to go on. Stories and
-step-by-step guides go on without it: a panel's instructions ask for the next panel, and a guide
-waits for the user anyway.
+Stories work the same way: the cast and each panel are told in a reply of their own, and the keeper
+asks for the next panel. Without a keeper, a slideshow or a story stops after each step until the
+user says to go on. Step-by-step guides and interactive panels (with choices) wait for the user
+anyway.
 
 Step results also set `instructionsRequired`, so a turn-based host (text chat) takes a turn for the
 model to explain the step.
