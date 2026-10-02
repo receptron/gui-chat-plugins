@@ -23,8 +23,9 @@ export interface ViewAngle {
 export interface RenderPageOptions {
   /** URL the driver serves `three.module.js` from. */
   threeUrl: string;
-  /** `group.toJSON()` of the built model. */
-  sceneJson: unknown;
+  /** How many parts the scene's JSON is served in (`sceneChunks`), each at
+   *  `./scene/<i>` beside the page. */
+  sceneParts: number;
   views: readonly ViewAngle[];
   /** Pixel size of ONE tile. The sheet is tiled to fit every view. */
   width: number;
@@ -42,6 +43,33 @@ export interface RenderPageOptions {
  *  back unchanged. */
 export function scriptJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+/** Characters per part of the scene JSON. The driver hands each response to
+ *  Chromium as one DevTools message, and a body of ~100 MB or more is not
+ *  delivered: the frame is detached mid-load ("Navigating frame was detached"),
+ *  which a 20 x 20 x 20 lattice (~150 MB of JSON) hit every time. 16 MB parts
+ *  load a 290 MB scene in ~6 s. */
+export const SCENE_CHUNK_CHARS = 16_000_000;
+
+/** The scene as JSON text in parts of at most `size` characters, never split
+ *  inside a surrogate pair (each part is encoded on its own, and half a pair
+ *  would arrive as a replacement character). Joined, the parts are exactly
+ *  `JSON.stringify(scene)`. */
+export function sceneChunks(
+  scene: unknown,
+  size = SCENE_CHUNK_CHARS,
+): string[] {
+  const text = JSON.stringify(scene);
+  const parts: string[] = [];
+  for (let start = 0; start < text.length;) {
+    let end = Math.min(start + size, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    parts.push(text.slice(start, end));
+    start = end;
+  }
+  return parts.length > 0 ? parts : [text];
 }
 
 /** Tile the views into the squarest grid that holds them (1→1x1, 2→2x1, 4→2x2). */
@@ -65,7 +93,18 @@ sheet.height = config.height * rows;
 context.fillStyle = "#ffffff";
 context.fillRect(0, 0, sheet.width, sheet.height);
 
-const model = new ObjectLoader().parse(config.scene);
+// The scene arrives in parts (\`sceneChunks\`): one response that large is not
+// delivered to the page. Fetched together, joined in order, parsed once.
+const sceneText = (
+  await Promise.all(
+    Array.from({ length: config.sceneParts }, async (_, part) => {
+      const response = await fetch("./scene/" + part);
+      if (!response.ok) throw new Error("scene part " + part + ": HTTP " + response.status);
+      return response.text();
+    }),
+  )
+).join("");
+const model = new ObjectLoader().parse(JSON.parse(sceneText));
 
 // Framing is derived from the model's own bounding sphere, so one zoom value
 // means the same thing for a 0.1-unit bead and a 500-unit building.
@@ -169,9 +208,11 @@ window.__shapeSheet = sheet.toDataURL("image/png");`;
 }
 
 /** Assemble the page. `scriptJson` is the only interpolation into script
- *  context — the caller's numbers and labels never reach the page as code. */
+ *  context — the caller's numbers and labels never reach the page as code, and
+ *  the scene (with any text from the script, like an object's `name`) is not in
+ *  the page at all: it is fetched as data. */
 export function buildRenderPage(options: RenderPageOptions): string {
-  const { threeUrl, sceneJson, views, width, height, zoom, projection } =
+  const { threeUrl, sceneParts, views, width, height, zoom, projection } =
     options;
   const config = scriptJson({
     views,
@@ -179,7 +220,7 @@ export function buildRenderPage(options: RenderPageOptions): string {
     height,
     zoom,
     projection,
-    scene: sceneJson,
+    sceneParts,
   });
   const script = `${sceneScript(threeUrl, config, scriptJson(gridFor(views.length)))}\n${drawScript()}`;
   return `<!doctype html>

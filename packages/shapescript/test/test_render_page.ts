@@ -1,6 +1,7 @@
-// The render page puts the scene into an inline <script>. Text from the
-// ShapeScript source reaches it — an object's `name` goes through `toJSON()` —
-// so a `</script>` in that text must not end the element (codex on #13).
+// The render page and the scene it fetches. Text from the ShapeScript source
+// reaches the scene — an object's `name` goes through `toJSON()` — so a
+// `</script>` in it must never reach the page as markup (codex on #13); the
+// scene now travels as data in parts, so it is not in the page at all.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -8,6 +9,7 @@ import * as THREE from "three";
 import {
   buildRenderPage,
   FRAMING_SOURCE,
+  sceneChunks,
   scriptJson,
 } from "../src/render/page";
 import { parseShapeScript } from "../src/shapescript/parser";
@@ -16,22 +18,27 @@ import { disposeObject3D } from "../src/shapescript/dispose";
 
 const HOSTILE = `</script><script>window.__shapeSheet = "data:image/png;base64,spoofed"</script>`;
 
-function pageFor(script: string): string {
+/** The page for `script` and the scene parts the driver would serve beside it. */
+function renderedFor(script: string): { html: string; scene: string[] } {
   const group = astToThreeJS(parseShapeScript(script));
   try {
-    return buildRenderPage({
+    const scene = sceneChunks(group.toJSON());
+    const html = buildRenderPage({
       threeUrl: "http://127.0.0.1/three.module.js",
-      sceneJson: group.toJSON(),
+      sceneParts: scene.length,
       views: [{ azimuth: 0, elevation: 0, label: "front" }],
       width: 64,
       height: 64,
       zoom: 1,
       projection: "perspective",
     });
+    return { html, scene };
   } finally {
     disposeObject3D(group);
   }
 }
+
+const pageFor = (script: string): string => renderedFor(script).html;
 
 describe("scriptJson", () => {
   it("escapes every < and reads back as the same value", () => {
@@ -43,8 +50,10 @@ describe("scriptJson", () => {
 });
 
 describe("buildRenderPage", () => {
-  it("keeps a </script> in an object name inside the one script element", () => {
-    const html = pageFor(`cube { name ${JSON.stringify(HOSTILE)} }`);
+  it("keeps a </script> in an object name out of the page: the scene is fetched as data", () => {
+    const { html, scene } = renderedFor(
+      `cube { name ${JSON.stringify(HOSTILE)} }`,
+    );
     assert.equal(
       html.match(/<\/script/gi)?.length,
       1,
@@ -55,12 +64,63 @@ describe("buildRenderPage", () => {
       1,
       "no script element but the page's own",
     );
-    const config = /^const config = (.*);$/m.exec(html)?.[1];
-    assert.ok(config, "the page declares its config");
+    assert.ok(
+      !html.includes('__shapeSheet = "data:image/png;base64,spoofed'),
+      "the name is not in the page",
+    );
+    // It is in the scene the page fetches, intact.
     assert.match(
-      JSON.stringify(JSON.parse(config)),
+      JSON.stringify(JSON.parse(scene.join(""))),
       /<\/script><script>window\.__shapeSheet/,
     );
+  });
+
+  it("asks for every part of the scene, in order", () => {
+    const { html, scene } = renderedFor("cube");
+    const config = /^const config = (.*);$/m.exec(html)?.[1];
+    assert.ok(config, "the page declares its config");
+    assert.equal(
+      (JSON.parse(config) as { sceneParts: number }).sceneParts,
+      scene.length,
+    );
+    assert.match(html, /fetch\("\.\/scene\/" \+ part\)/);
+  });
+});
+
+describe("sceneChunks", () => {
+  // One response of ~100 MB or more never reached the page ("Navigating frame was
+  // detached"), so the scene goes in parts that must rebuild it exactly.
+  it("splits the scene JSON into parts no larger than asked that join back to it", () => {
+    const scene = {
+      geometries: [
+        { data: { array: Array.from({ length: 5000 }, (_, i) => i / 7) } },
+      ],
+    };
+    const text = JSON.stringify(scene);
+    const parts = sceneChunks(scene, 1000);
+    assert.ok(parts.length > 10);
+    assert.ok(parts.every((part) => part.length <= 1000));
+    assert.equal(parts.join(""), text);
+    assert.deepEqual(JSON.parse(parts.join("")), scene);
+  });
+
+  it("never splits a surrogate pair across parts", () => {
+    // "😀" is two UTF-16 units, at 10-11 and 13-14 of {"name":"a😀b😀c"}: with
+    // parts of 11 a plain slice would end the first part between the two.
+    const scene = { name: "a😀b😀c" };
+    const parts = sceneChunks(scene, 11);
+    for (const part of parts) {
+      const last = part.charCodeAt(part.length - 1);
+      assert.ok(
+        !(last >= 0xd800 && last <= 0xdbff),
+        `part ends in a high surrogate: ${JSON.stringify(part)}`,
+      );
+    }
+    assert.equal(parts.join(""), JSON.stringify(scene));
+  });
+
+  it("answers one part for a small scene", () => {
+    assert.deepEqual(sceneChunks({ a: 1 }), ['{"a":1}']);
   });
 });
 

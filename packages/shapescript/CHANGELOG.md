@@ -1,5 +1,16 @@
 # Changelog
 
+## 8.2.1
+
+- **`renderShapeScript` no longer fails on large models with "Navigating frame was detached".**
+  The render page carried the whole scene as JSON inside one response, and the driver hands each
+  response to Chromium as a single DevTools message: from about 100 MB the page's frame was
+  detached mid-load. Every lattice of 20 x 20 x 20 cells did that (153 MB at `detail 8`, 286 MB at
+  `detail 12`). The scene is now fetched by the page in parts of at most 16 MB (`sceneChunks`)
+  and parsed once; those two lattices render in about 11 s and 17 s. Text from the script (an
+  object's `name`) is no longer in the page at all, only in the scene data. Renders are otherwise
+  unchanged: the shipped models compare exactly as before.
+
 ## 8.2.0
 
 - **The preview's CSG can run through manifold** (phase 2 of the manifold proposal), behind an
