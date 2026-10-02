@@ -27,7 +27,7 @@ import {
 } from "../shapescript/toThreeJS";
 import { parseShapeScript } from "../shapescript/parser";
 import { isRecord } from "../core/contract";
-import { buildRenderPage, type ViewAngle } from "./page";
+import { buildRenderPage, type ViewAngle, sceneChunks } from "./page";
 
 const ONE_SECOND_MS = 1_000;
 
@@ -246,6 +246,7 @@ const THREE_URL = "./three.module.js";
 async function assetFor(
   url: string,
   html: string,
+  scene: readonly string[],
   buildDir: string,
 ): Promise<{ contentType: string; body: string } | null> {
   let parsed: URL;
@@ -258,6 +259,14 @@ async function assetFor(
   const name = path.posix.basename(parsed.pathname);
   if (name === "render.html")
     return { contentType: "text/html; charset=utf-8", body: html };
+  // A part of the scene JSON (`sceneChunks`): `/scene/<i>`, nothing else.
+  const part = /^\/scene\/(\d+)$/.exec(parsed.pathname);
+  if (part) {
+    const body = scene[Number(part[1])];
+    return body === undefined
+      ? null
+      : { contentType: "application/json; charset=utf-8", body };
+  }
   if (!/^three[\w.-]*\.js$/.test(name)) return null;
   return {
     contentType: "text/javascript; charset=utf-8",
@@ -267,7 +276,11 @@ async function assetFor(
 
 /** Answer the page's requests from disk. Puppeteer's interception is per-page
  *  and synchronous in registration, so the handler resolves its own promise. */
-async function serveRenderAssets(page: PageLike, html: string): Promise<void> {
+async function serveRenderAssets(
+  page: PageLike,
+  html: string,
+  scene: readonly string[],
+): Promise<void> {
   const buildDir = path.dirname(threeModulePath());
   await page.setRequestInterception(true);
   page.on("request", (request: RequestLike) => {
@@ -275,7 +288,7 @@ async function serveRenderAssets(page: PageLike, html: string): Promise<void> {
       // An aborted request whose page has already closed rejects; the render
       // either finished (nothing left to serve) or failed for its own reason.
       try {
-        const asset = await assetFor(request.url(), html, buildDir);
+        const asset = await assetFor(request.url(), html, scene, buildDir);
         await (asset
           ? request.respond({ status: 200, ...asset })
           : request.abort());
@@ -306,8 +319,15 @@ export async function renderShapeScriptSheet(
     parseShapeScript(options.script),
     options.csgEngine ? { csgEngine: options.csgEngine } : {},
   );
-  const sceneJson: unknown = model.toJSON();
-  const html = buildRenderPage({ ...options, threeUrl: THREE_URL, sceneJson });
+  // The scene is served in parts, not inlined: one response of ~100 MB or more
+  // is never delivered to the page, which then fails with "Navigating frame was
+  // detached" — every large lattice did (see SCENE_CHUNK_CHARS).
+  const scene = sceneChunks(model.toJSON());
+  const html = buildRenderPage({
+    ...options,
+    threeUrl: THREE_URL,
+    sceneParts: scene.length,
+  });
 
   let browser: BrowserLike;
   try {
@@ -331,7 +351,7 @@ export async function renderShapeScriptSheet(
     // between a diagnosable failure and a mystery.
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    await serveRenderAssets(page, html);
+    await serveRenderAssets(page, html, scene);
     await page.goto(PAGE_URL, {
       waitUntil: "load",
       timeout: NAVIGATION_TIMEOUT_MS,

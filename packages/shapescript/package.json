@@ -1,6 +1,6 @@
 {
   "name": "@gui-chat-plugin/shapescript",
-  "version": "8.2.0",
+  "version": "8.2.1",
   "description": "presentShapeScript — interactive 3D models authored in the ShapeScript language (parser + Three.js renderer), with USDZ / GLB / STL export, for GUI Chat Protocol hosts. Core (tool definition + execute) on `.`, Vue View/Preview on `./vue`, server-only rasterising on `./render`.",
   "type": "module",
   "main": "./dist/index.js",
