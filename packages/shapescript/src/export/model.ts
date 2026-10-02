@@ -7,7 +7,11 @@
 
 import type * as THREE from "three";
 import { parseShapeScript } from "../shapescript/parser";
-import { astToThreeJS, type ConversionOptions } from "../shapescript/toThreeJS";
+import {
+  astToThreeJS,
+  ensureCsgEngine,
+  type ConversionOptions,
+} from "../shapescript/toThreeJS";
 import { disposeObject3D } from "../shapescript/dispose";
 
 /** The conversion knobs an export accepts — everything but `wireframe`, which
@@ -20,6 +24,7 @@ export async function exportShapeScript(
   serialise: (object: THREE.Object3D) => Promise<Uint8Array<ArrayBuffer>>,
   options: ExportOptions = {},
 ): Promise<Uint8Array<ArrayBuffer>> {
+  await ensureCsgEngine(options.csgEngine);
   const group = astToThreeJS(parseShapeScript(script), {
     ...options,
     wireframe: false,

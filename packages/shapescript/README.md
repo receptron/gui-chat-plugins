@@ -93,6 +93,22 @@ survive as `COLOR_0`) and **STL** (binary, geometry only, in world space, for sl
 built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. That STL is the model as displayed,
 every part a separate shell; for printing, use the printable STL below.
 
+## CSG engine: three-bvh-csg or manifold
+
+The preview evaluates CSG blocks with three-bvh-csg by default. manifold, the engine the printable
+STL export uses, can evaluate them instead: per conversion with `csgEngine: "manifold"`, or for
+every conversion after one `await enableManifoldCsg()` (in the browser before the first View
+renders, on the server before the first tool call — the conversion itself is synchronous, so
+manifold has to be loaded first). A host that never opts in never loads manifold.
+
+With manifold the result of every block is watertight, each face keeps its operand's material,
+normals are carried through, and `stencil` repaints the first operand's surface; a block with an
+operand manifold cannot take (an open or flat one) falls back to three-bvh-csg. On the shipped
+models the renders differ from three-bvh-csg's in at most 0.12% of pixels, and manifold is two to
+three times faster. A lattice inside a `union` previews with manifold (10 x 10 x 10 in about 8 s)
+where three-bvh-csg is refused at the time limit. `scripts/compare-csg-engines.ts` repeats the
+render comparison.
+
 ## Printable STL: `exportShapeScriptStl`
 
 `exportShapeScriptStl` writes the model as **one watertight solid** for a slicer, through

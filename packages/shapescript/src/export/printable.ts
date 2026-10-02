@@ -25,6 +25,7 @@ import {
 import { disposeObject3D } from "../shapescript/dispose";
 import type { ExportOptions } from "./model";
 import { at } from "../shapescript/at";
+import { loadManifold } from "../shapescript/manifoldModule";
 import { bakedWorldGeometries, visibleMeshes } from "./stl";
 
 /** What a slicer will make of a printable STL. */
@@ -60,23 +61,7 @@ export interface PrintableOptions extends ExportOptions {
 /** Vertices this close in the output are one vertex to a slicer. */
 const WELD_MM = 1e-5;
 
-let manifoldModule: Promise<ManifoldToplevel> | undefined;
-
-/** manifold's WebAssembly module, loaded once on first use. A failed load is
- *  not cached, so the next export tries again. */
-export function loadManifold(): Promise<ManifoldToplevel> {
-  manifoldModule ??= import("manifold-3d")
-    .then(async ({ default: Module }) => {
-      const wasm = await Module();
-      wasm.setup();
-      return wasm;
-    })
-    .catch((error: unknown) => {
-      manifoldModule = undefined;
-      throw error;
-    });
-  return manifoldModule;
-}
+export { loadManifold };
 
 /** Parse, evaluate and export one ShapeScript source as a printable binary
  *  STL, with its report. Throws when nothing is left to print. */
