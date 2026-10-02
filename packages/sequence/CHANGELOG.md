@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4
+
+- **A story is told aloud, panel by panel.** Asked to tell a panel and call the next one in the same
+  reply, OpenAI's Realtime and Grok called it without a word: six panels went by in 25 seconds,
+  silent, while the pictures were drawn. The cast and each panel are now told in a reply of their
+  own, and the host's sequence keeper asks for the next panel when it ends, as slides have been since
+  0.5.3. Checked in MulmoChat (Storyteller role, mock images): every panel told aloud, 52–73 words
+  a panel on OpenAI's Realtime, 57–69 on Grok, 28–38 on Gemini Live. Interactive panels (with
+  choices) and the last panel are unchanged. A host needs `createSequenceKeeper` for a story to go
+  on by itself, as for a slideshow.
+
 ## 0.5.3
 
 - **A slide is explained in a reply of its own, and the host's sequence keeper asks for the next

@@ -338,8 +338,13 @@ export function parseStoryboardArgs(
   };
 }
 
-export const castShownInstructions = ({ title, id }: Storyboard): string =>
-  `The cast of "${title}" is now on the screen. Introduce the characters briefly, then, in this same reply and without waiting for the user, call presentPanel for panel 1 with storyboardId "${id}". If the user has asked you to stop, or asked something else, answer them instead of going on.`;
+// The cast and each panel are told in a reply of their own, and the host's
+// sequence keeper asks for the next panel when it ends, as for slides
+// (slideShownInstructions). Asked to tell the panel and call the next one in
+// the same reply, OpenAI's Realtime and Grok called it without a word: six
+// panels went by in 25 seconds, silent.
+export const castShownInstructions = ({ title }: Storyboard): string =>
+  `The cast of "${title}" is now on the screen. Introduce the characters briefly. This reply is only the introduction: don't call presentPanel in it. When you have finished, you will be asked for panel 1. If the user has asked you to stop, or asked something else, answer them instead of going on.`;
 
 /** The cast's result data. */
 export interface CastData {
@@ -397,7 +402,7 @@ export function panelShownInstructions(
     return `Panel ${panel} of ${totalPanels} is now on the screen, with the user's choices: ${listed} Tell this part of the story, then read the choices out and ask the user which one they pick, and wait for their answer. Then call presentPanel for panel ${panel + 1} with storyboardId "${id}", going on the way they chose.`;
   }
   return panel < totalPanels
-    ? `Panel ${panel} of ${totalPanels} is now on the screen. Tell this part of the story, then, in this same reply and without waiting for the user, call presentPanel for panel ${panel + 1} with storyboardId "${id}". If the user has asked you to stop, or asked something else, since the story began, answer them instead of going on.`
+    ? `Panel ${panel} of ${totalPanels} is now on the screen. Tell this part of the story, aloud, as a storyteller. This reply is only the telling: don't call presentPanel in it. When you have finished, you will be asked for panel ${panel + 1}. If the user has asked you to stop, or asked something else, since the story began, answer them instead of going on.`
     : `Panel ${panel} of ${totalPanels}, the last one, is now on the screen. Tell this part of the story, then bring it to an end.`;
 }
 
