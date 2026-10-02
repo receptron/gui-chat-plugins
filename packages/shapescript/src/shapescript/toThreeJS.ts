@@ -219,6 +219,10 @@ export interface CsgOperand {
 export type CsgEvaluator = (
   operation: CSGNode["operation"],
   operands: readonly CsgOperand[],
+  /** The conversion's clock: throws once `maxDurationMs` has passed. Call it
+   *  between booleans and before answering, as three-bvh-csg's fold does — or
+   *  ignore it, as the printable export does (its time is the tool's). */
+  checkBudget: () => void,
 ) => THREE.BufferGeometry | null | undefined;
 
 /** The engines a CSG block can be evaluated with. */
@@ -676,7 +680,9 @@ export class Converter {
       materials: materialsOf(mesh).length,
     }));
     try {
-      const geometry = evaluate(operation, operands);
+      const geometry = evaluate(operation, operands, () =>
+        this.checkDuration(),
+      );
       if (geometry === undefined) return undefined;
       if (!geometry) return new THREE.Group();
       // Grouped: the groups number every operand's materials in order.

@@ -27,7 +27,8 @@ interface Solid {
 }
 
 export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
-  return (operation, operands) => {
+  return (operation, operands, checkBudget) => {
+    checkBudget();
     const owned: Manifold[] = [];
     const keep = (manifold: Manifold): Manifold => {
       owned.push(manifold);
@@ -46,17 +47,22 @@ export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
       }
       const [first, ...rest] = solids;
       if (!first) return null;
-      if (operation === "stencil") return stencil(first, rest, slotOf);
+      if (operation === "stencil")
+        return stencil(first, rest, slotOf, checkBudget);
       const result = combine(
         wasm,
         operation,
         first.manifold,
         rest.map((solid) => solid.manifold),
         keep,
+        checkBudget,
       );
-      return result.isEmpty()
-        ? null
-        : geometryOf([{ manifold: result }], slotOf);
+      // manifold is lazy: isEmpty() evaluates the result, and only then has
+      // the time been spent. One boolean cannot be interrupted, but a result
+      // that came in past the limit is refused, as the next one would be.
+      const empty = result.isEmpty();
+      checkBudget();
+      return empty ? null : geometryOf([{ manifold: result }], slotOf);
     } finally {
       for (const manifold of owned) manifold.delete();
     }
@@ -146,25 +152,61 @@ function combine(
   first: Manifold,
   rest: Manifold[],
   keep: (manifold: Manifold) => Manifold,
+  checkBudget: () => void,
 ): Manifold {
   const { Manifold: M } = wasm;
   if (rest.length === 0) return first;
+  const union = (parts: Manifold[]) =>
+    chunkedUnion(wasm, parts, keep, checkBudget);
   switch (operation) {
     case "union":
-      return keep(M.union([first, ...rest]));
+      return union([first, ...rest]);
     case "difference":
-      return keep(first.subtract(keep(M.union(rest))));
+      return keep(first.subtract(union(rest)));
     case "intersection":
       return keep(M.intersection([first, ...rest]));
     case "xor":
-      return rest.reduce(
-        (acc, next) =>
-          keep(keep(acc.subtract(next)).add(keep(next.subtract(acc)))),
-        first,
-      );
+      // One step per operand, each evaluated (numTri) and the clock checked
+      // before the next is started.
+      return rest.reduce((acc, next) => {
+        const step = keep(
+          keep(acc.subtract(next)).add(keep(next.subtract(acc))),
+        );
+        step.numTri();
+        checkBudget();
+        return step;
+      }, first);
     default:
       throw new Error(`Unknown CSG operation: ${operation}`);
   }
+}
+
+/** Operands per batch union in `chunkedUnion`. */
+const UNION_CHUNK = 256;
+
+/** The union of many operands, a batch of `UNION_CHUNK` at a time, each
+ *  evaluated and the clock checked before the next starts, then the batches'
+ *  results the same way. One batch union cannot be interrupted, so this keeps
+ *  how far a block can run past `maxDurationMs` to one chunk rather than the
+ *  whole union (codex on #24). */
+function chunkedUnion(
+  wasm: ManifoldToplevel,
+  parts: Manifold[],
+  keep: (manifold: Manifold) => Manifold,
+  checkBudget: () => void,
+): Manifold {
+  if (parts.length <= UNION_CHUNK) {
+    const result = keep(wasm.Manifold.union(parts));
+    result.numTri();
+    checkBudget();
+    return result;
+  }
+  const chunks: Manifold[] = [];
+  for (let i = 0; i < parts.length; i += UNION_CHUNK)
+    chunks.push(
+      chunkedUnion(wasm, parts.slice(i, i + UNION_CHUNK), keep, checkBudget),
+    );
+  return chunkedUnion(wasm, chunks, keep, checkBudget);
 }
 
 /** `stencil`: the first operand's surface, unchanged in shape, painted with
@@ -175,6 +217,7 @@ function stencil(
   first: Solid,
   cutters: Solid[],
   slotOf: Map<number, number>,
+  checkBudget: () => void,
 ): THREE.BufferGeometry | null {
   let pieces: Piece[] = [{ manifold: first.manifold }];
   // Pieces this function made, freed when replaced or at the end; the first
@@ -182,6 +225,7 @@ function stencil(
   const own = (manifold: Manifold) => manifold !== first.manifold;
   try {
     for (const cutter of cutters) {
+      checkBudget();
       pieces = pieces.flatMap((piece) => {
         const [inside, outside] = piece.manifold.split(cutter.manifold);
         if (own(piece.manifold)) piece.manifold.delete();

@@ -260,6 +260,29 @@ describe("csgEngine manifold", () => {
     }
   });
 
+  it("holds a block to maxDurationMs, as three-bvh-csg does (codex on #24)", () => {
+    // 100 overlapping detail-32 spheres: built well inside 300 ms, unioned in
+    // about 2 s. The union cannot be interrupted, but its result is refused
+    // once the limit has passed; it used to be returned.
+    const spheres = Array.from(
+      { length: 100 },
+      (_, i) => ` sphere {\n  position ${(i * 0.05).toFixed(2)} 0 0\n }`,
+    ).join("\n");
+    const script = `detail 32\nunion {\n${spheres}\n}`;
+    for (const engine of ["three-bvh-csg", "manifold"] as const)
+      assert.throws(
+        () =>
+          disposeObject3D(
+            astToThreeJS(parseShapeScript(script), {
+              csgEngine: engine,
+              maxDurationMs: 300,
+            }),
+          ),
+        /longer than 300ms/,
+        engine,
+      );
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];
