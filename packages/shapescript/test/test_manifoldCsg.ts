@@ -337,6 +337,64 @@ describe("csgEngine manifold", () => {
     assert.equal(two.red + two.blue, two.total);
   });
 
+  it("paints a stencil with a coloured shape value's colour (codex on #24)", () => {
+    // The colour each face is DRAWN with: its material's colour, times its
+    // vertex colour when the material reads them (a shape kept as a value).
+    const drawn = (script: string) => {
+      const group = astToThreeJS(parseShapeScript(script), {
+        csgEngine: "manifold",
+      });
+      const area = new Map<string, number>();
+      group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const geometry = mesh.geometry;
+        const materials = (
+          Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        ) as THREE.MeshStandardMaterial[];
+        const position = geometry.getAttribute("position");
+        const colour = geometry.getAttribute("color");
+        for (const group of geometry.groups) {
+          const material = materials[group.materialIndex ?? 0];
+          assert.ok(material);
+          for (let k = group.start; k < group.start + group.count; k += 3) {
+            const face = material.color.clone();
+            if (material.vertexColors) {
+              assert.ok(colour, "a vertexColors material needs vertex colours");
+              face.multiply(
+                new THREE.Color(colour.getX(k), colour.getY(k), colour.getZ(k)),
+              );
+            }
+            const [a, b, c] = [0, 1, 2].map((j) =>
+              new THREE.Vector3().fromBufferAttribute(position, k + j),
+            ) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+            const size =
+              new THREE.Vector3()
+                .subVectors(c, b)
+                .cross(new THREE.Vector3().subVectors(a, b))
+                .length() / 2;
+            const key = `#${face.getHexString()}`;
+            area.set(key, (area.get(key) ?? 0) + size);
+          }
+        }
+      });
+      disposeObject3D(group);
+      return area;
+    };
+    const ball = "define ball sphere {\n color red\n}\n";
+    const box = "define box cube {\n color blue\n size 0.5 2 2\n}\n";
+    for (const script of [
+      `detail 32\n${ball}${box}stencil {\n ball\n box\n}`,
+      `detail 32\n${box}stencil {\n sphere {\n  color red\n }\n box\n}`,
+      `detail 32\n${ball}stencil {\n ball\n cube {\n  color blue\n  size 0.5 2 2\n }\n}`,
+    ]) {
+      const area = drawn(script);
+      assert.deepEqual([...area.keys()].sort(), ["#0000ff", "#ff0000"], script);
+      assert.ok(Math.abs((area.get("#0000ff") ?? 0) - 1.569) < 0.01, script);
+      assert.ok(Math.abs((area.get("#ff0000") ?? 0) - 1.559) < 0.01, script);
+    }
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];

@@ -26,6 +26,9 @@ interface Solid {
   manifold: Manifold;
   firstSlot: number;
   ids: number[];
+  /** The operand's vertex colour, averaged, when it has vertex colours: what
+   *  a `stencil` cutter that is a coloured shape value paints with. */
+  colour?: [number, number, number];
 }
 
 export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
@@ -146,7 +149,22 @@ function solidOf(
     manifold.delete();
     return undefined;
   }
-  return { manifold, firstSlot, ids };
+  const colour = colours ? averageColour(colours) : undefined;
+  return { manifold, firstSlot, ids, ...(colour ? { colour } : {}) };
+}
+
+/** The mean of a colour attribute: a coloured shape value is one colour. */
+function averageColour(
+  colours: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+): [number, number, number] {
+  const sum: [number, number, number] = [0, 0, 0];
+  for (let v = 0; v < colours.count; v++) {
+    sum[0] += colours.getX(v);
+    sum[1] += colours.getY(v);
+    sum[2] += colours.getZ(v);
+  }
+  const count = Math.max(colours.count, 1);
+  return [sum[0] / count, sum[1] / count, sum[2] / count];
 }
 
 /** The geometry's normals, computed when it has none. */
@@ -249,12 +267,22 @@ function stencil(
         // (codex on #24).
         const halves: Piece[] = [];
         if (inside.isEmpty()) inside.delete();
-        else halves.push({ manifold: inside, paint: cutter.firstSlot });
+        // Painted with the cutter's material slot and, when the cutter is a
+        // coloured shape value (a white material reading vertex colours), its
+        // colour too: the slot alone left the surface's own colours under the
+        // cutter's material (codex on #24).
+        else
+          halves.push({
+            manifold: inside,
+            paint: cutter.firstSlot,
+            ...(cutter.colour ? { paintColour: cutter.colour } : {}),
+          });
         if (outside.isEmpty()) outside.delete();
         else
           halves.push({
             manifold: outside,
             ...(piece.paint === undefined ? {} : { paint: piece.paint }),
+            ...(piece.paintColour ? { paintColour: piece.paintColour } : {}),
           });
         return halves;
       });
@@ -274,6 +302,8 @@ interface Piece {
   manifold: Manifold;
   /** A slot every face of this piece is drawn with, overriding its own. */
   paint?: number;
+  /** A vertex colour every face of this piece takes, overriding its own. */
+  paintColour?: [number, number, number];
 }
 
 /** Triangles of `pieces` as one non-indexed geometry with a group per run of
@@ -300,7 +330,11 @@ function geometryOf(
       const from = at(mesh.runIndex, run);
       const to = at(mesh.runIndex, run + 1);
       if (to === from) continue;
+      const before = colours.length;
       appendTriangles(mesh, from, to, flip, positions, normals, colours);
+      if (piece.paintColour)
+        for (let i = before; i < colours.length; i += 3)
+          colours.splice(i, 3, ...piece.paintColour);
       runs.push({ slot, triangles: (to - from) / 3 });
     }
   }
