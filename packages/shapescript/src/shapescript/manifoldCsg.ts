@@ -15,8 +15,10 @@ import type { Manifold, ManifoldToplevel, Mesh } from "manifold-3d";
 import { at } from "./at";
 import type { CsgEvaluator, CsgOperand } from "./toThreeJS";
 
-/** Position x y z and normal x y z per vertex. */
+/** Position x y z and normal x y z per vertex; then, when any operand has
+ *  vertex colours (a coloured shape value), colour r g b. */
 const PROPERTIES = 6;
+const PROPERTIES_WITH_COLOUR = 9;
 
 /** One operand as a manifold, the material slot of each of its IDs, and its
  *  first slot (the material a `stencil` cutter paints with). */
@@ -29,6 +31,12 @@ interface Solid {
 export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
   return (operation, operands, checkBudget) => {
     checkBudget();
+    // Vertex colours ride along as properties when any operand has them; a
+    // shape kept as a value is coloured that way, and losing them left its
+    // material (vertexColors) with nothing to read (codex on #24).
+    const withColour = operands.some((operand) =>
+      Boolean(operand.geometry.getAttribute("color")),
+    );
     const owned: Manifold[] = [];
     const keep = (manifold: Manifold): Manifold => {
       owned.push(manifold);
@@ -39,7 +47,7 @@ export function manifoldCsgEvaluator(wasm: ManifoldToplevel): CsgEvaluator {
       let slot = 0;
       const solids: Solid[] = [];
       for (const operand of operands) {
-        const solid = solidOf(wasm, operand, slot, slotOf);
+        const solid = solidOf(wasm, operand, slot, slotOf, withColour);
         if (!solid) return undefined;
         keep(solid.manifold);
         solids.push(solid);
@@ -77,23 +85,31 @@ function solidOf(
   operand: CsgOperand,
   firstSlot: number,
   slotOf: Map<number, number>,
+  withColour: boolean,
 ): Solid | undefined {
   const { geometry } = operand;
   const position = geometry.getAttribute("position");
   const normals = normalsOf(geometry);
-  const vertProperties = new Float32Array(position.count * PROPERTIES);
+  const colours = geometry.getAttribute("color");
+  const stride = withColour ? PROPERTIES_WITH_COLOUR : PROPERTIES;
+  const vertProperties = new Float32Array(position.count * stride);
   for (let v = 0; v < position.count; v++) {
-    vertProperties.set(
-      [
-        position.getX(v),
-        position.getY(v),
-        position.getZ(v),
-        normals.getX(v),
-        normals.getY(v),
-        normals.getZ(v),
-      ],
-      v * PROPERTIES,
-    );
+    const row = [
+      position.getX(v),
+      position.getY(v),
+      position.getZ(v),
+      normals.getX(v),
+      normals.getY(v),
+      normals.getZ(v),
+    ];
+    // White for an operand without colours: its material does not read them.
+    if (withColour)
+      row.push(
+        colours ? colours.getX(v) : 1,
+        colours ? colours.getY(v) : 1,
+        colours ? colours.getZ(v) : 1,
+      );
+    vertProperties.set(row, v * stride);
   }
   const corner = (k: number) => (geometry.index ? geometry.index.getX(k) : k);
   const groups = [...geometry.groups].sort((a, b) => a.start - b.start);
@@ -113,7 +129,7 @@ function solidOf(
   runIndex.push(triVerts.length);
   if (triVerts.length < 12) return undefined;
   const mesh = new wasm.Mesh({
-    numProp: PROPERTIES,
+    numProp: stride,
     vertProperties,
     triVerts: new Uint32Array(triVerts),
     runIndex: new Uint32Array(runIndex),
@@ -271,6 +287,7 @@ function geometryOf(
 ): THREE.BufferGeometry | null {
   const positions: number[] = [];
   const normals: number[] = [];
+  const colours: number[] = [];
   const runs: { slot: number; triangles: number }[] = [];
   for (const piece of pieces) {
     if (piece.manifold.isEmpty()) continue;
@@ -283,7 +300,7 @@ function geometryOf(
       const from = at(mesh.runIndex, run);
       const to = at(mesh.runIndex, run + 1);
       if (to === from) continue;
-      appendTriangles(mesh, from, to, flip, positions, normals);
+      appendTriangles(mesh, from, to, flip, positions, normals, colours);
       runs.push({ slot, triangles: (to - from) / 3 });
     }
   }
@@ -294,6 +311,11 @@ function geometryOf(
     new THREE.Float32BufferAttribute(positions, 3),
   );
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  if (colours.length === positions.length)
+    geometry.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(colours, 3),
+    );
   // three-bvh-csg needs position, normal and uv on every operand, and a block
   // that falls back to it may take this result as one (codex on #24). Nothing
   // reads the coordinates — `texture` is not supported — so zeros will do.
@@ -326,6 +348,7 @@ function appendTriangles(
   flip: number,
   positions: number[],
   normals: number[],
+  colours: number[],
 ): void {
   const props = mesh.vertProperties;
   const stride = mesh.numProp;
@@ -341,5 +364,7 @@ function appendTriangles(
       .normalize()
       .multiplyScalar(flip);
     normals.push(normal.x, normal.y, normal.z);
+    if (stride >= PROPERTIES_WITH_COLOUR)
+      colours.push(at(props, at0 + 6), at(props, at0 + 7), at(props, at0 + 8));
   }
 }

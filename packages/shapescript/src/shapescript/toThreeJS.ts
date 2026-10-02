@@ -352,6 +352,8 @@ function operandGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
   geometry.setAttribute("position", source.getAttribute("position").clone());
   const normal = source.getAttribute("normal");
   if (normal) geometry.setAttribute("normal", normal.clone());
+  const colour = source.getAttribute("color");
+  if (colour) geometry.setAttribute("color", colour.clone());
   if (source.index) geometry.setIndex(source.index.clone());
   const count = source.index?.count ?? source.getAttribute("position").count;
   // A geometry's own groups name material slots only when the mesh has a

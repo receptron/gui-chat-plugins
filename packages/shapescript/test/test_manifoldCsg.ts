@@ -302,6 +302,41 @@ describe("csgEngine manifold", () => {
     );
   });
 
+  it("carries a coloured shape value's vertex colours through the block (codex on #24)", () => {
+    // A shape kept as a value is coloured per vertex, its material reading
+    // them. three-bvh-csg passes a lone operand through with its colours; a
+    // manifold result had none. With two coloured values both engines used
+    // to lose them; manifold keeps both now.
+    const colours = (script: string) => {
+      const group = astToThreeJS(parseShapeScript(script), {
+        csgEngine: "manifold",
+      });
+      const counts = { red: 0, blue: 0, total: 0 };
+      group.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const colour = mesh.geometry.getAttribute("color");
+        assert.ok(colour, "the result has vertex colours");
+        for (let v = 0; v < colour.count; v++) {
+          counts.total++;
+          if (colour.getX(v) > 0.9 && colour.getZ(v) < 0.1) counts.red++;
+          if (colour.getZ(v) > 0.9 && colour.getX(v) < 0.1) counts.blue++;
+        }
+      });
+      disposeObject3D(group);
+      return counts;
+    };
+    const one = colours(
+      "define redcube cube {\n color red\n}\nunion {\n redcube\n}",
+    );
+    assert.equal(one.red, one.total);
+    const two = colours(
+      "define redcube cube {\n color red\n}\ndefine bluecube cube {\n color blue\n}\nunion {\n redcube\n translate 0.5 0 0\n bluecube\n}",
+    );
+    assert.ok(two.red > 0 && two.blue > 0);
+    assert.equal(two.red + two.blue, two.total);
+  });
+
   it("builds a lattice inside a union as one mesh, where three-bvh-csg runs out of time", () => {
     // The 4 x 4 x 4 lattice of the manifold proposal, wrapped in a union.
     const lines = ["detail 8", "union {"];
