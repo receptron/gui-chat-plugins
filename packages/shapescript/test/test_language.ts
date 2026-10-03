@@ -624,6 +624,23 @@ describe("expressions", () => {
       );
     }
   });
+  it("keeps the left length for vector + and -, and truncates to the shorter for * and /", () => {
+    const cases: [string, number[]][] = [
+      ["(1 2 3) + (10 20)", [11, 3, 3]],
+      ["(5 5 5) - (1 2)", [4, 5, 3]],
+      ["(10 20) + (1 2 3)", [11, 22, 2]],
+      ["(2 3 4) * (10 10)", [20, 30, 2]],
+      ["(8 6 4) / (2 3)", [4, 2, 2]],
+      ["(2 3) * (10 10 10)", [20, 30, 2]],
+    ];
+    for (const [expression, firstLastCount] of cases) {
+      withMesh(
+        `define v ${expression}\ncube { position v.first v.last v.count }`,
+        (mesh) =>
+          assert.deepEqual(mesh.position.toArray(), firstLastCount, expression),
+      );
+    }
+  });
   it("distinguishes signed tuple components from binary arithmetic", () => {
     for (const vector of [
       "1 +2 3",

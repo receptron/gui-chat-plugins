@@ -1,5 +1,13 @@
 # Changelog
 
+## 8.2.2
+
+- Internal cleanup, no change in behaviour (the same as MulmoClaude #3360 made to its copy before it switched to
+  this package). The evaluator's vector `+` / `-` / `*` / `/` share two helpers, `zipKeepingLeft` (keeps the left
+  vector's length) and `zipToShorter` (truncates to the shorter one), instead of four copies of the loop; the
+  converter's "merge the parts, dispose them" step is one `mergeOwnedParts`. A new test pins the length rules, and
+  passes on the code before this change too.
+
 ## 8.2.1
 
 - **`renderShapeScript` no longer fails on large models with "Navigating frame was detached".**
