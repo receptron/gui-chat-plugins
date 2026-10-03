@@ -534,6 +534,28 @@ function toNumber(value: Value | undefined): number {
   throw new Error(`Cannot convert ${typeof value} to number`);
 }
 
+/** Vector `+` / `-`: the left vector's length, its extra elements untouched. */
+function zipKeepingLeft(
+  left: Value[],
+  right: Value[],
+  combine: (a: number, b: number) => number,
+): Value[] {
+  return left.map((value, i) =>
+    i < right.length ? combine(toNumber(value), toNumber(right[i])) : value,
+  );
+}
+
+/** Element-wise `*` / `/`: truncated to the shorter vector. */
+function zipToShorter(
+  left: Value[],
+  right: Value[],
+  combine: (a: number, b: number) => number,
+): Value[] {
+  return left
+    .slice(0, Math.min(left.length, right.length))
+    .map((value, i) => combine(toNumber(value), toNumber(right[i])));
+}
+
 function toArray(value: Value): Value[] {
   if (Array.isArray(value)) return value;
   return [value];
@@ -705,37 +727,18 @@ export class Evaluator {
 
         switch (expr.operator) {
           case "+":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              // Vector addition (preserve left length)
-              const result: Value[] = [...left];
-              for (let i = 0; i < result.length && i < right.length; i++) {
-                result[i] = toNumber(result[i]) + toNumber(right[i]);
-              }
-              return result;
-            }
+            if (Array.isArray(left) && Array.isArray(right))
+              return zipKeepingLeft(left, right, (a, b) => a + b);
             return toNumber(left) + toNumber(right);
 
           case "-":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              // Vector subtraction (preserve left length)
-              const result: Value[] = [...left];
-              for (let i = 0; i < result.length && i < right.length; i++) {
-                result[i] = toNumber(result[i]) - toNumber(right[i]);
-              }
-              return result;
-            }
+            if (Array.isArray(left) && Array.isArray(right))
+              return zipKeepingLeft(left, right, (a, b) => a - b);
             return toNumber(left) - toNumber(right);
 
           case "*":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              // Element-wise multiplication (truncate to shorter)
-              const len = Math.min(left.length, right.length);
-              const result: Value[] = [];
-              for (let i = 0; i < len; i++) {
-                result.push(toNumber(left[i]) * toNumber(right[i]));
-              }
-              return result;
-            }
+            if (Array.isArray(left) && Array.isArray(right))
+              return zipToShorter(left, right, (a, b) => a * b);
             if (Array.isArray(left)) {
               // Scalar multiplication
               return left.map((v) => toNumber(v) * toNumber(right));
@@ -747,15 +750,8 @@ export class Evaluator {
             return toNumber(left) * toNumber(right);
 
           case "/":
-            if (Array.isArray(left) && Array.isArray(right)) {
-              // Element-wise division (truncate to shorter)
-              const len = Math.min(left.length, right.length);
-              const result: Value[] = [];
-              for (let i = 0; i < len; i++) {
-                result.push(toNumber(left[i]) / toNumber(right[i]));
-              }
-              return result;
-            }
+            if (Array.isArray(left) && Array.isArray(right))
+              return zipToShorter(left, right, (a, b) => a / b);
             if (Array.isArray(left)) {
               // Scalar division
               return left.map((v) => toNumber(v) / toNumber(right));

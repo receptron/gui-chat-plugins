@@ -473,6 +473,14 @@ const MAX_LOGS = 200;
 /** Same bound for distinct warnings; they are deduplicated first. */
 const MAX_WARNINGS = 200;
 
+/** One geometry from freshly built parts, disposing the parts it merged. */
+function mergeOwnedParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  if (parts.length === 1) return at(parts, 0);
+  const geometry = mergeMeshGeometries(parts);
+  parts.forEach((part) => part.dispose());
+  return geometry;
+}
+
 /** Signed volume of an indexed or unindexed triangle geometry. */
 function signedVolume(geometry: THREE.BufferGeometry): number {
   const position = geometry.getAttribute("position");
@@ -2487,10 +2495,7 @@ export class Converter {
             const parts = [...solids, ...walls];
             for (const part of parts)
               this.chargeEstimate(part.getAttribute("position").count);
-            const geometry =
-              parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
-            if (parts.length > 1) parts.forEach((part) => part.dispose());
-            return geometry;
+            return mergeOwnedParts(parts);
           },
         );
       }
@@ -2551,10 +2556,7 @@ export class Converter {
         const parts = sections.map((section) =>
           loftGeometry(sweepRings(section, points, closed), closed),
         );
-        const geometry =
-          parts.length === 1 ? at(parts, 0) : mergeMeshGeometries(parts);
-        if (parts.length > 1) parts.forEach((part) => part.dispose());
-        return geometry;
+        return mergeOwnedParts(parts);
       },
     );
   }
