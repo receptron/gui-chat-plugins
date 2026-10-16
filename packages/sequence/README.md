@@ -74,6 +74,21 @@ small tables; HTML for designed layouts, comparisons, timelines and diagrams. Pi
 words, numbers and math badly. A slide sent with more than one is one kind: `html` first, then
 `markdown`, then `chart`, then the picture.
 
+### A picture on an HTML or Markdown slide
+
+An HTML or Markdown slide can hold one generated picture: `imagePrompt` with `html` or `markdown`,
+and `{{image}}` where the picture goes (`<img src="{{image}}" class="…">`, `![what it shows]({{image}})`).
+`execute()` draws it with the host's `generateImage` and returns it as for a picture slide
+(`imageData`, `imagePath`); the slide's `html` keeps `{{image}}`, in the result and the record.
+`withSlideImage(html, imageData)` (core entry) puts the picture in its place, a `data:` URL, which
+the slide's policy allows; the View does this, and so must a host that shows or films the saved
+HTML itself (reading `imagePath` as a `data:` URL). A Markdown slide whose picture is on a line of
+its own is laid out in two columns: the text on the left, the picture on the right, filling the
+slide's height (`object-fit: cover`, so the picture is asked to keep its subject in the middle).
+Without `{{image}}`, an `imagePrompt` sent with `html` or `markdown` is left out; `{{image}}`
+without `imagePrompt` is refused. When the picture can't be drawn, the slide is shown without it
+and the model is told.
+
 ### Markdown slides
 
 `markdown` is GitHub-flavored Markdown with TeX math between `$…$` (inline) or `$$…$$` (a
@@ -135,7 +150,7 @@ that an HTML step is on the screen; a guide step asked for again is then shown a
 
 Saved through `files.artifacts`, with their pictures' paths:
 
-- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath } } }`; a slide that isn't a picture has an `imagePrompt` of `""` and no `imagePath`, and has `html` (an HTML slide), `html` and `markdown` (a Markdown slide) or `chart` (a chart slide)
+- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath } } }`; a slide that isn't a picture has `html` (an HTML slide), `html` and `markdown` (a Markdown slide) or `chart` (a chart slide), and an `imagePrompt` of `""` and no `imagePath` unless its `html` places a picture at `{{image}}`
 - `storyboards/<id>.json`: `{ id, title, style, totalPanels, interactive, characters: [{ name, description, imagePath }], panels: { "1": { caption, characters, imagePrompt, imagePath, choices } } }`
 
 IDs are 12 hex digits. The results name them, so a later tool call can refer to a slideshow or a

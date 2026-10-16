@@ -1,6 +1,7 @@
 // presentSlide: one slide of a spoken slideshow: a generated picture, a
 // slide written in HTML (./slideHtml.ts) or in Markdown (./markdownSlide.ts,
-// made into HTML here), or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
+// made into HTML here), which can hold one generated picture at {{image}},
+// or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
 // when it appears. With the slide number and the total as arguments, the
 // result says where the slideshow is (ToolResult.sequence), and the host can
 // ask the model to go on (gui-chat-protocol's createSequenceKeeper).
@@ -18,6 +19,7 @@
 import type { SequenceStep, ToolResult } from "gui-chat-protocol";
 import {
   parseSlideArgs,
+  SLIDE_IMAGE_WITHOUT_PROMPT,
   slideShownInstructions,
   type SlideArgs,
   type SlideData,
@@ -37,6 +39,7 @@ import {
 } from "./host";
 import type { SlideChart } from "./chartSlide";
 import { markdownSlideHtml } from "./markdownSlide";
+import { hasSlideImageMark } from "./slideHtml";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
 
@@ -179,9 +182,7 @@ function slidePrompt(slide: SlideArgs, hasReference: boolean): string {
   const titled = slide.title ? `, "${slide.title}"` : "";
   return [
     `An instructional illustration of step ${slide.slide} of ${slide.totalSlides}${titled}. ${slide.imagePrompt}`,
-    hasReference
-      ? "The reference image is the previous step: keep the same objects, hands, tools and setting, and show what this step changes."
-      : "",
+    hasReference ? STEP_REFERENCE : "",
     "Show the action clearly, with little or no text.",
   ]
     .filter(Boolean)
@@ -195,27 +196,80 @@ interface SlideContent {
   markdown?: string;
   chart?: SlideChart;
   prompt: string;
+  /** Why an HTML or Markdown slide's picture couldn't be drawn: the slide is
+   *  shown without it. */
+  pictureFailed?: string;
 }
 
+const STEP_REFERENCE =
+  "The reference image is the previous step: keep the same objects, hands, tools and setting, and show what this step changes.";
+
+/** A guide step's reference: the step before's saved picture, when it has
+ *  one the host can use. */
+async function stepReferences(
+  context: SequenceContext,
+  show: ShownSlideshow,
+  slide: SlideArgs,
+): Promise<string[]> {
+  if (slide.mode !== "steps") return [];
+  const previousPath = imageOf(show.slides.get(slide.slide - 1)).imagePath;
+  return previousPath ? await usableReferences(context, [previousPath]) : [];
+}
+
+/** The picture an HTML or Markdown slide places at {{image}}: no title in
+ *  it, since the slide has its own, and no text. */
+const placedPicturePrompt = (slide: SlideArgs, hasReference: boolean) =>
+  [
+    slide.mode === "steps"
+      ? `An instructional illustration for step ${slide.slide} of ${slide.totalSlides}${slide.title ? `, "${slide.title}"` : ""}. ${slide.imagePrompt}`
+      : `A picture for a presentation slide${slide.title ? ` titled "${slide.title}"` : ""}. ${slide.imagePrompt}`,
+    hasReference ? STEP_REFERENCE : "",
+    // A Markdown slide's picture fills a tall right-hand column (object-fit:
+    // cover), which crops a wide picture's sides.
+    slide.markdown
+      ? "Keep the subject in the middle: the picture is cropped to a tall frame."
+      : "",
+    "No text, letters or numbers in the picture.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
 /** The slide's picture, drawn by the host; an HTML slide or a chart is shown
- *  as it is, a Markdown slide as the HTML made of it. */
+ *  as it is, a Markdown slide as the HTML made of it, either with the
+ *  picture it places at {{image}} drawn too. */
 async function slideContent(
   context: SequenceContext,
   show: ShownSlideshow,
   slide: SlideArgs,
 ): Promise<SlideContent | { failed: ToolResult }> {
-  if (slide.html) return { html: slide.html, prompt: "" };
   if (slide.chart) return { chart: slide.chart, prompt: "" };
-  if (slide.markdown) {
-    const html = await markdownSlideHtml(slide.markdown);
-    return { html, markdown: slide.markdown, prompt: "" };
+  if (slide.html || slide.markdown) {
+    const page: { html: string; markdown?: string } = slide.html
+      ? { html: slide.html }
+      : {
+          html: await markdownSlideHtml(slide.markdown ?? ""),
+          markdown: slide.markdown ?? "",
+        };
+    // Whether the slide has a place for a picture is read from its HTML: for
+    // Markdown, the HTML marked made of it, so a picture marked reads (a
+    // titled or reference-style one) counts, and an example in code doesn't.
+    const placed = hasSlideImageMark(page.html);
+    if (placed && !slide.imagePrompt) {
+      return {
+        failed: { message: SLIDE_IMAGE_WITHOUT_PROMPT, sequence: null },
+      };
+    }
+    if (!placed) return { ...page, prompt: "" };
+    // A guide step's picture is drawn from the step before's, as a picture
+    // step's is, so the objects and the setting stay the same.
+    const references = await stepReferences(context, show, slide);
+    const prompt = placedPicturePrompt(slide, references.length > 0);
+    const image = await drawPicture(context, prompt, references);
+    const { imageData, imagePath } = imageOf(image);
+    if (!imageData) return { ...page, prompt, pictureFailed: image.message };
+    return { ...page, imageData, ...(imagePath && { imagePath }), prompt };
   }
-  const previous = show.slides.get(slide.slide - 1);
-  const previousPath =
-    slide.mode === "steps" ? imageOf(previous).imagePath : undefined;
-  const references = previousPath
-    ? await usableReferences(context, [previousPath])
-    : [];
+  const references = await stepReferences(context, show, slide);
   const prompt = slidePrompt(slide, references.length > 0);
   const image = await drawPicture(context, prompt, references);
   const { imageData, imagePath } = imageOf(image);
@@ -232,7 +286,8 @@ async function makeSlide(
 ): Promise<ToolResult> {
   const content = await slideContent(context, show, slide);
   if ("failed" in content) return content.failed;
-  const { imageData, imagePath, html, markdown, chart, prompt } = content;
+  const { imageData, imagePath, html, markdown, chart, prompt, pictureFailed } =
+    content;
 
   const slideshowId = show.id;
   const recorded = await updateRecord<Slideshow>(
@@ -250,7 +305,8 @@ async function makeSlide(
       if (slide.slide === 1) slideshow.title = slide.title;
       slideshow.slides[String(slide.slide)] = {
         title: slide.title,
-        imagePrompt: slide.imagePrompt,
+        // A Markdown slide's imagePrompt with no place for it is left out.
+        imagePrompt: html && !prompt ? "" : slide.imagePrompt,
         ...(imagePath && { imagePath }),
         ...(html && { html }),
         ...(markdown && { markdown }),
@@ -280,6 +336,9 @@ async function makeSlide(
     message: [
       `${noun} ${slide.slide} of ${slide.totalSlides} of slideshow "${slideshowId}" is on the screen`,
       imagePath ? `saved to ${imagePath}` : "",
+      pictureFailed
+        ? `its picture couldn't be drawn (${pictureFailed}), so the slide is shown without it`
+        : "",
       recorded ? "" : NOT_SAVED("slideshow"),
     ]
       .filter(Boolean)

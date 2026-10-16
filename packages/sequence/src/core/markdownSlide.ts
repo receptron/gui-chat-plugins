@@ -10,10 +10,23 @@
 // execute(), a server included. marked and KaTeX are imported when a
 // Markdown slide is made, so a host that never makes one doesn't load them.
 import type { TokenizerAndRendererExtension } from "marked";
-import { SLIDE_HEIGHT, SLIDE_WIDTH, escapeHtml } from "./slideHtml";
+import {
+  SLIDE_HEIGHT,
+  SLIDE_IMAGE_MARK,
+  SLIDE_WIDTH,
+  escapeHtml,
+} from "./slideHtml";
 
 /** The class of a Markdown slide's box, which its style is scoped to. */
 const BOX = "slide-md";
+// A slide with a generated picture (![…]({{image}})) is two columns: the
+// text on the left, the picture on the right, filling the slide's height. The
+// slide is wide, so a picture under the text would leave both small.
+const SPLIT = "slide-md-split";
+const TEXT = "slide-md-text";
+const PICTURE = "slide-md-picture";
+// The text column is about half the slide: it starts smaller.
+const SPLIT_FONT_SCALE = 0.8;
 
 // Em-based, so the box's font size scales it all, and the page shrinks that
 // until the slide fits (data-fit in slideHtml's page script). The box keeps
@@ -42,6 +55,10 @@ const STYLE = `
 .${BOX} th { background: #eff6ff; font-weight: 700; }
 .${BOX} hr { border: 0; border-top: 2px solid #e2e8f0; }
 .${BOX} img { max-width: 100%; max-height: 60%; }
+.${BOX}.${SPLIT} { flex-direction: row; align-items: center; gap: 48px; }
+.${BOX} .${TEXT} { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 0.5em; }
+.${BOX} .${TEXT} > * { margin: 0; }
+.${BOX} .${PICTURE} { flex: 0 0 44%; width: 44%; height: 100%; max-width: none; max-height: 100%; object-fit: cover; border-radius: 0.6em; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); }
 .${BOX} .math-display { display: block; text-align: center; font-size: 1.15em; }
 .${BOX} math { font-family: "Latin Modern Math", "STIX Two Math", "Cambria Math", math; }
 .${BOX} mtd { padding: 0.1em 0.4em; }
@@ -154,6 +171,31 @@ export async function markdownSlideHtml(markdown: string): Promise<string> {
   };
   const marked = new Marked({ gfm: true, breaks: false });
   marked.use({ extensions: mathExtensions(render) });
+  // The picture is a paragraph of its own holding only ![…]({{image}}),
+  // found among the parsed blocks, so an example in a code block stays code.
+  const tokens = marked.lexer(markdown);
+  const at = tokens.findIndex(
+    (token) =>
+      token.type === "paragraph" &&
+      token.tokens?.length === 1 &&
+      token.tokens[0]?.type === "image" &&
+      token.tokens[0].href.trim() === SLIDE_IMAGE_MARK,
+  );
+  if (at >= 0) {
+    const [paragraph] = tokens.splice(at, 1);
+    const picture =
+      paragraph?.type === "paragraph" ? paragraph.tokens?.[0] : undefined;
+    const alt = picture?.type === "image" ? picture.text : "";
+    const body = marked.parser(tokens);
+    const text = markdown.replace(paragraph?.raw ?? "", "");
+    const size = Math.round(markdownFontSize(text) * SPLIT_FONT_SCALE);
+    return `<style>${STYLE}</style>
+<div class="${BOX} ${SPLIT}" data-fit style="font-size: ${size}px">
+<div class="${TEXT}">
+${body}</div>
+<img class="${PICTURE}" src="${SLIDE_IMAGE_MARK}" alt="${escapeHtml(alt)}">
+</div>`;
+  }
   const body = await marked.parse(markdown);
   return `<style>${STYLE}</style>
 <div class="${BOX}" data-fit style="font-size: ${markdownFontSize(markdown)}px">

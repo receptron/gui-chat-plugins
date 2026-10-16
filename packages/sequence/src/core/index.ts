@@ -50,6 +50,9 @@ export {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   slideHtmlDocument,
+  SLIDE_IMAGE_MARK,
+  hasSlideImageMark,
+  withSlideImage,
 } from "./slideHtml";
 export {
   SLIDE_CHART_TYPES,

@@ -9,6 +9,7 @@ import {
   SLIDE_FIT_SCRIPT,
   neutralizeSlideHtml,
   slideHtmlDocument,
+  withSlideImage,
 } from "../src/core/slideHtml";
 import {
   PRESENT_SLIDE_DEFINITION,
@@ -381,6 +382,331 @@ test("html wins over an imagePrompt sent with it", async () => {
   assert.equal(host.calls.length, 0);
   assert.equal(data(result).prompt, "");
   assert.ok(data(result).html);
+});
+
+test("an HTML slide with {{image}} draws one picture and shows it there; the record keeps the mark", async () => {
+  const host = fakeHost();
+  const name = title("Volcano");
+  const html = `<div class="w-full h-full flex"><img src="{{image}}" alt="a volcano" class="w-1/2"><p>Magma</p></div>`;
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 61,
+    title: name,
+    html,
+    imagePrompt: "an erupting volcano at dusk",
+  });
+
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    String(host.calls[0]?.prompt),
+    /^A picture for a presentation slide titled "Volcano \d+"\. an erupting volcano at dusk No text/,
+  );
+  const { slideshowId, imageData, imagePath, prompt } = data(result);
+  assert.equal(
+    data(result).html,
+    html,
+    "the slide keeps its mark; the View puts the picture there",
+  );
+  assert.equal(imageData, "data:image/png;base64,1");
+  assert.equal(imagePath, "artifacts/images/2026/09/picture1.png");
+  assert.equal(prompt, String(host.calls[0]?.prompt));
+  assert.match(
+    result.message,
+    /saved to artifacts\/images\/2026\/09\/picture1\.png/,
+  );
+  assert.deepEqual(record(host.artifacts, `slideshows/${slideshowId}.json`), {
+    id: slideshowId,
+    title: name,
+    mode: "presentation",
+    totalSlides: 61,
+    slides: {
+      "1": {
+        title: name,
+        imagePrompt: "an erupting volcano at dusk",
+        imagePath,
+        html,
+      },
+    },
+  });
+  assert.equal(
+    withSlideImage(html, String(imageData)),
+    html.replace("{{image}}", "data:image/png;base64,1"),
+  );
+  assert.match(
+    slideHtmlDocument(withSlideImage(html, String(imageData))),
+    /<img src="data:image\/png;base64,1"/,
+  );
+});
+
+test("a Markdown slide with ![…]({{image}}) on a line of its own is two columns: text left, picture right", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 62,
+    title: title("Cells"),
+    markdown: "# Cells\n\n![a plant cell]({{image}})\n\n- Wall\n- Chloroplasts",
+    imagePrompt: "a plant cell under a microscope",
+  });
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    String(host.calls[0]?.prompt),
+    /a plant cell under a microscope Keep the subject in the middle: the picture is cropped to a tall frame\. No text/,
+  );
+  const html = String(data(result).html);
+  assert.match(
+    html,
+    /<div class="slide-md slide-md-split" data-fit style="font-size: \d+px">\n<div class="slide-md-text">\n<h1>Cells<\/h1>/,
+  );
+  assert.match(
+    html,
+    /<\/ul>\n<\/div>\n<img class="slide-md-picture" src="\{\{image\}\}" alt="a plant cell">\n<\/div>$/,
+    "the picture follows the text column",
+  );
+  assert.doesNotMatch(html, /<p><img/, "the picture's line is not in the text");
+  assert.match(
+    withSlideImage(html, "data:image/png;base64,1"),
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="a plant cell">/,
+  );
+  // Within a line, the picture stays where it is (marked writes the braces percent-encoded).
+  const inline = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 65,
+    title: title("Inline"),
+    markdown: "# Inline\n\nA cell ![cell]({{image}}) has a wall.",
+    imagePrompt: "a cell",
+  });
+  const inlineHtml = String(data(inline).html);
+  assert.doesNotMatch(inlineHtml, /class="slide-md slide-md-split"/);
+  assert.match(
+    withSlideImage(inlineHtml, "data:image/png;base64,2"),
+    /<img src="data:image\/png;base64,2" alt="cell">/,
+  );
+});
+
+test("{{image}} without an imagePrompt is refused; an imagePrompt without {{image}} is left out", async () => {
+  const host = fakeHost();
+  const refused = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 63,
+    title: title("No prompt"),
+    html: `<img src="{{image}}">`,
+  });
+  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
+  assert.equal(refused.sequence, null);
+  const plain = await presentSlide(host.context(), {
+    ...htmlSlide(1, 63, title("No mark")),
+    imagePrompt: "a picture with nowhere to go",
+  });
+  assert.equal(data(plain).prompt, "");
+  assert.equal(host.calls.length, 0);
+});
+
+test("a slide whose picture couldn't be drawn is shown without it, and the model is told", async () => {
+  const host = fakeHost({ fail: () => true });
+  const html = `<div><img src="{{image}}"><p>Text</p></div>`;
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 64,
+    title: title("Failed picture"),
+    html,
+    imagePrompt: "something the model refuses",
+  });
+  assert.equal(data(result).html, html);
+  assert.equal(data(result).imageData, undefined);
+  assert.equal(
+    result.instructionsRequired,
+    true,
+    "the slide is on the screen and is explained",
+  );
+  assert.match(
+    result.message,
+    /its picture couldn't be drawn \(image generation failed: refused\), so the slide is shown without it/,
+  );
+  assert.match(
+    withSlideImage(html),
+    /<img src="data:image\/gif;base64,/,
+    "a transparent pixel, not a broken image",
+  );
+});
+
+test("a guide step's placed picture is drawn from the step before's picture", async () => {
+  const host = fakeHost();
+  const name = title("Origami crane");
+  const step1 = await presentSlide(
+    host.context({ userSpokeAt: Date.now() - 1000 }),
+    slideArgs(1, 66, name, { mode: "steps" }),
+  );
+  const step2 = await presentSlide(
+    host.context({ userSpokeAt: Date.now() + 1, currentResult: step1 }),
+    {
+      slide: 2,
+      totalSlides: 66,
+      title: `${name}: part 2`,
+      mode: "steps",
+      markdown:
+        "# Fold in half\n\n![the folded paper]({{image}})\n\n- Corner to corner",
+      imagePrompt: "the square folded into a triangle",
+    },
+  );
+  assert.equal(data(step2).slide, 2);
+  assert.deepEqual(host.calls[1]?.references, [data(step1).imagePath]);
+  assert.match(
+    String(host.calls[1]?.prompt),
+    /^An instructional illustration for step 2 of 66, "Origami crane \d+: part 2"\. the square folded into a triangle The reference image is the previous step/,
+  );
+});
+
+test("an example in a code block is code: no picture column, and its {{image}} stays text", async () => {
+  const host = fakeHost();
+  const markdown =
+    "# Syntax\n\n```md\n![a cell]({{image}})\n```\n\n![the result]({{image}})";
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 67,
+    title: title("Code example"),
+    markdown,
+    imagePrompt: "a cell",
+  });
+  const html = String(data(result).html);
+  assert.match(
+    html,
+    /class="slide-md slide-md-split"/,
+    "the paragraph-only picture still makes the columns",
+  );
+  assert.match(
+    html,
+    /<code class="language-md">!\[a cell\]\(\{\{image\}\}\)\n<\/code>/,
+    "the example is kept as written",
+  );
+  const shown = withSlideImage(html, "data:image/png;base64,1");
+  assert.match(
+    shown,
+    /<code class="language-md">!\[a cell\]\(\{\{image\}\}\)/,
+    "and isn't replaced",
+  );
+  assert.match(
+    shown,
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="the result">/,
+  );
+
+  // Only in code, or only as text: not a place for a picture, so no
+  // imagePrompt is needed and none is drawn.
+  const calls = host.calls.length;
+  for (const markdown of [
+    "# Syntax\n\n```md\n![a cell]({{image}})\n```",
+    "# Syntax\n\nWrite `![a cell]({{image}})` for a picture.",
+  ]) {
+    const onlyCode = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 68,
+      title: title("Only code"),
+      markdown,
+    });
+    assert.ok(data(onlyCode).html, onlyCode.message);
+    assert.doesNotMatch(
+      String(data(onlyCode).html),
+      /class="slide-md slide-md-split"/,
+    );
+  }
+  const htmlText = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 68,
+    title: title("Mark as text"),
+    html: "<p>Write <code>{{image}}</code> where the picture goes.</p>",
+  });
+  assert.ok(data(htmlText).html, htmlText.message);
+  assert.equal(host.calls.length, calls);
+});
+
+test("a titled Markdown picture is a place for a picture too", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 69,
+    title: title("Titled"),
+    markdown: '# Cells\n\n![cell]({{image}} "Plant cell")\n\n- Wall',
+    imagePrompt: "a plant cell",
+  });
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    withSlideImage(String(data(result).html), "data:image/png;base64,1"),
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="cell">/,
+  );
+});
+
+test("a picture marked reads (brackets in its text, a reference) is placed; {{image}} without a prompt is refused", async () => {
+  const host = fakeHost();
+  for (const markdown of [
+    "# Cells\n\n![a [plant] cell]({{image}})\n\n- Wall",
+    "# Cells\n\n![a plant cell][pic]\n\n- Wall\n\n[pic]: {{image}}",
+  ]) {
+    const result = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 70,
+      title: title("Read by marked"),
+      markdown,
+      imagePrompt: "a plant cell",
+    });
+    assert.ok(data(result).imageData, `${markdown}: ${result.message}`);
+    assert.match(
+      String(data(result).html),
+      /class="slide-md slide-md-split"/,
+      markdown,
+    );
+  }
+  assert.equal(host.calls.length, 2);
+  const refused = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 70,
+    title: title("Markdown without prompt"),
+    markdown: "# Cells\n\n![a cell]({{image}})",
+  });
+  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
+  assert.equal(refused.sequence, null);
+});
+
+test('an HTML code example of <img src="{{image}}"> is not a place for a picture', async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 71,
+    title: title("HTML example"),
+    html: '<pre><code>&lt;img src="{{image}}"&gt;</code></pre>',
+  });
+  assert.ok(data(result).html, result.message);
+  assert.equal(host.calls.length, 0);
+});
+
+test("withSlideImage leaves code alone: an example of url({{image}}) stays as written", () => {
+  const html =
+    '<pre><code>background: url({{image}});\n&lt;img src="{{image}}"&gt;</code></pre><p>Use <code>src="{{image}}"</code>.</p><img src="{{image}}">';
+  const shown = withSlideImage(html, "data:image/png;base64,1");
+  assert.match(shown, /<pre><code>background: url\(\{\{image\}\}\);/);
+  assert.match(shown, /<code>src="\{\{image\}\}"<\/code>/);
+  assert.match(shown, /<\/p><img src="data:image\/png;base64,1">$/);
+});
+
+test("withSlideImage puts in only a data: URL of an image", () => {
+  const html = `<img src="{{image}}"><div style="background:url({{image}})"></div>`;
+  assert.equal(
+    (
+      withSlideImage(html, "data:image/jpeg;base64,AAAA").match(
+        /data:image\/jpeg;base64,AAAA/g,
+      ) ?? []
+    ).length,
+    2,
+  );
+  for (const bad of [
+    "https://example.com/a.png",
+    'data:image/png;base64,AA" onerror="x',
+    "data:text/html;base64,AAAA",
+  ]) {
+    assert.doesNotMatch(
+      withSlideImage(html, bad),
+      /example\.com|onerror|text\/html/,
+      bad,
+    );
+  }
 });
 
 test("a slide with neither an imagePrompt nor html, or too much html, ends the sequence", async () => {

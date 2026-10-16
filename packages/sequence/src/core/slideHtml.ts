@@ -282,6 +282,54 @@ html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; over
 html:not(.ready) body { visibility: hidden; }
 ${SLIDE_CSS_ANIMATIONS_FINISHED}`;
 
+// A slide's generated picture. An HTML or Markdown slide marks where it goes
+// with {{image}} (<img src="{{image}}">, ![…]({{image}}), url({{image}})),
+// and the host's picture, a data: URL, takes its place when the slide is
+// shown: the policy above lets a slide load images from data: URLs only, and
+// the slide's saved HTML keeps the mark, its picture saved apart (imagePath),
+// so a record doesn't carry the picture twice. Marked writes the Markdown
+// form's braces percent-encoded.
+export const SLIDE_IMAGE_MARK = "{{image}}";
+// Only where a picture can be: an src attribute or a CSS url(), so a code
+// example that shows {{image}} keeps it as text.
+const IMAGE_PLACE =
+  /(\bsrc\s*=\s*["']?|\burl\(\s*["']?)(?:\{\{image\}\}|%7B%7Bimage%7D%7D)/gi;
+const DATA_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
+// A transparent pixel, for a picture that couldn't be drawn: no broken-image
+// icon on the slide.
+const NO_IMAGE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+// Code shown on the slide, which is text whatever it says.
+const CODE = /(<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>)/gi;
+
+/** Whether a slide's HTML has a place for a picture: an src or a CSS url()
+ *  of {{image}} outside <pre> and <code>, where withSlideImage puts it. A
+ *  Markdown slide is asked about the HTML made of it, so the answer is
+ *  marked's reading of the Markdown. */
+export const hasSlideImageMark = (html: string): boolean =>
+  html
+    .split(CODE)
+    .some(
+      (part, i) =>
+        i % 2 === 0 && new RegExp(IMAGE_PLACE.source, "i").test(part),
+    );
+
+/** The slide's HTML with its picture in place of {{image}}, outside <pre>
+ *  and <code>: imageData when it is a data: URL of an image, else a
+ *  transparent pixel. */
+export const withSlideImage = (html: string, imageData?: string): string => {
+  const src = imageData && DATA_IMAGE.test(imageData) ? imageData : NO_IMAGE;
+  return html
+    .split(CODE)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(IMAGE_PLACE, (_, before: string) => before + src),
+    )
+    .join("");
+};
+
 /** The page an HTML slide is shown as. */
 export function slideHtmlDocument(html: string): string {
   return `<!doctype html>
