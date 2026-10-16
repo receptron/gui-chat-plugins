@@ -105,7 +105,9 @@ addresses and no local names (`localhost`, `*.local`, a name without a dot…), 
 most 3) checked the same way, 10 seconds and 5 MB at most, and only bytes that are a PNG, JPEG, GIF
 or WebP picture, whatever the server says its type is. A public name that resolves to a private
 address isn't caught: that needs a DNS lookup, which a page can't make; what comes back is shown
-only if it is a picture. MulmoGlass fetches it in the page, where a site that doesn't allow CORS
+only if it is a picture. MulmoChat's server runs on the user's machine, so it reaches what their
+browser reaches; a host whose server runs elsewhere should fetch on a network that has nothing to
+reach. MulmoGlass fetches it in the page, where a site that doesn't allow CORS
 can't be read.
 
 A picture that can't be fetched is drawn instead, from `imagePrompt` (an HTML or Markdown slide's

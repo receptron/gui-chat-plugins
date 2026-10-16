@@ -10,6 +10,8 @@
 // and only bytes that are a PNG, JPEG, GIF or WebP picture. A public name
 // that resolves to a private address isn't caught (that needs DNS, which a
 // page can't do); what comes back from it is shown only if it is a picture.
+// MulmoChat's server runs on the user's machine, so it reaches what their
+// browser does.
 //
 // Saved as the host's own pictures are (MulmoChat's imageStore):
 // artifacts/images/<YYYY>/<MM>/<16 hex>.<ext>, so a movie of the slideshow,
