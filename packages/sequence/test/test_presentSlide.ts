@@ -634,6 +634,49 @@ test("a titled Markdown picture is a place for a picture too", async () => {
   );
 });
 
+test("a picture marked reads (brackets in its text, a reference) is placed; {{image}} without a prompt is refused", async () => {
+  const host = fakeHost();
+  for (const markdown of [
+    "# Cells\n\n![a [plant] cell]({{image}})\n\n- Wall",
+    "# Cells\n\n![a plant cell][pic]\n\n- Wall\n\n[pic]: {{image}}",
+  ]) {
+    const result = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 70,
+      title: title("Read by marked"),
+      markdown,
+      imagePrompt: "a plant cell",
+    });
+    assert.ok(data(result).imageData, `${markdown}: ${result.message}`);
+    assert.match(
+      String(data(result).html),
+      /class="slide-md slide-md-split"/,
+      markdown,
+    );
+  }
+  assert.equal(host.calls.length, 2);
+  const refused = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 70,
+    title: title("Markdown without prompt"),
+    markdown: "# Cells\n\n![a cell]({{image}})",
+  });
+  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
+  assert.equal(refused.sequence, null);
+});
+
+test('an HTML code example of <img src="{{image}}"> is not a place for a picture', async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 71,
+    title: title("HTML example"),
+    html: '<pre><code>&lt;img src="{{image}}"&gt;</code></pre>',
+  });
+  assert.ok(data(result).html, result.message);
+  assert.equal(host.calls.length, 0);
+});
+
 test("withSlideImage leaves code alone: an example of url({{image}}) stays as written", () => {
   const html =
     '<pre><code>background: url({{image}});\n&lt;img src="{{image}}"&gt;</code></pre><p>Use <code>src="{{image}}"</code>.</p><img src="{{image}}">';

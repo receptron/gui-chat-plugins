@@ -111,17 +111,20 @@ export function parseSlideArgs(
   );
   if (size > MAX_SLIDE_HTML) return SLIDE_HTML_TOO_LONG;
   const picture = !html && !markdown && !chart;
-  // An HTML or Markdown slide with a place for a picture ({{image}}) has one;
-  // without the place, an imagePrompt sent with it is left out, as before.
-  const placed = html
-    ? hasSlideImageMark(html, "html")
-    : !!markdown && hasSlideImageMark(markdown, "markdown");
+  // An HTML slide with a place for a picture ({{image}}) has one; without the
+  // place, an imagePrompt sent with it is left out, as before. A Markdown
+  // slide keeps its imagePrompt until it is made into HTML, which says
+  // whether it has the place (presentSlide).
+  const placed = !!html && hasSlideImageMark(html);
   if (placed && !text(imagePrompt)) return SLIDE_IMAGE_WITHOUT_PROMPT;
   return {
     slide,
     totalSlides,
     title: typeof title === "string" ? title : "",
-    imagePrompt: picture || placed ? String(imagePrompt) : "",
+    imagePrompt:
+      picture || placed || (markdown && text(imagePrompt))
+        ? String(imagePrompt)
+        : "",
     ...(html && { html }),
     ...(markdown && { markdown }),
     ...(chart && { chart }),

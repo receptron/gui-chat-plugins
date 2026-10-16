@@ -19,6 +19,7 @@
 import type { SequenceStep, ToolResult } from "gui-chat-protocol";
 import {
   parseSlideArgs,
+  SLIDE_IMAGE_WITHOUT_PROMPT,
   slideShownInstructions,
   type SlideArgs,
   type SlideData,
@@ -38,6 +39,7 @@ import {
 } from "./host";
 import type { SlideChart } from "./chartSlide";
 import { markdownSlideHtml } from "./markdownSlide";
+import { hasSlideImageMark } from "./slideHtml";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
 
@@ -248,8 +250,16 @@ async function slideContent(
           html: await markdownSlideHtml(slide.markdown ?? ""),
           markdown: slide.markdown ?? "",
         };
-    // parseSlideArgs keeps an imagePrompt only for a slide with {{image}}.
-    if (!slide.imagePrompt) return { ...page, prompt: "" };
+    // Whether the slide has a place for a picture is read from its HTML: for
+    // Markdown, the HTML marked made of it, so a picture marked reads (a
+    // titled or reference-style one) counts, and an example in code doesn't.
+    const placed = hasSlideImageMark(page.html);
+    if (placed && !slide.imagePrompt) {
+      return {
+        failed: { message: SLIDE_IMAGE_WITHOUT_PROMPT, sequence: null },
+      };
+    }
+    if (!placed) return { ...page, prompt: "" };
     // A guide step's picture is drawn from the step before's, as a picture
     // step's is, so the objects and the setting stay the same.
     const references = await stepReferences(context, show, slide);
@@ -295,7 +305,8 @@ async function makeSlide(
       if (slide.slide === 1) slideshow.title = slide.title;
       slideshow.slides[String(slide.slide)] = {
         title: slide.title,
-        imagePrompt: slide.imagePrompt,
+        // A Markdown slide's imagePrompt with no place for it is left out.
+        imagePrompt: html && !prompt ? "" : slide.imagePrompt,
         ...(imagePath && { imagePath }),
         ...(html && { html }),
         ...(markdown && { markdown }),

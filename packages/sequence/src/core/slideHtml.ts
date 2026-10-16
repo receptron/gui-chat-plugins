@@ -300,26 +300,20 @@ const DATA_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
 const NO_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-// Markdown's picture, outside code: fenced and indented blocks and inline
-// code spans are taken out first, so an example of the syntax isn't one.
-// An optional title after the URL, as Markdown allows: ![a](src "title").
-const MARKDOWN_PICTURE =
-  /!\[[^\]\n]*\]\(\s*<?\{\{image\}\}>?(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/i;
-const MARKDOWN_CODE =
-  /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$|^(?: {4}|\t).*$|`[^`\n]*`/gm;
-
-/** Whether an HTML slide (an src or a CSS url() of {{image}}) or a Markdown
- *  slide (![…]({{image}}) outside code) has a place for a picture. */
-export const hasSlideImageMark = (
-  text: string,
-  kind: "html" | "markdown",
-): boolean =>
-  kind === "html"
-    ? new RegExp(IMAGE_PLACE.source, "i").test(text)
-    : MARKDOWN_PICTURE.test(text.replace(MARKDOWN_CODE, ""));
-
 // Code shown on the slide, which is text whatever it says.
 const CODE = /(<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>)/gi;
+
+/** Whether a slide's HTML has a place for a picture: an src or a CSS url()
+ *  of {{image}} outside <pre> and <code>, where withSlideImage puts it. A
+ *  Markdown slide is asked about the HTML made of it, so the answer is
+ *  marked's reading of the Markdown. */
+export const hasSlideImageMark = (html: string): boolean =>
+  html
+    .split(CODE)
+    .some(
+      (part, i) =>
+        i % 2 === 0 && new RegExp(IMAGE_PLACE.source, "i").test(part),
+    );
 
 /** The slide's HTML with its picture in place of {{image}}, outside <pre>
  *  and <code>: imageData when it is a data: URL of an image, else a
