@@ -282,6 +282,32 @@ html, body { margin: 0; width: ${SLIDE_WIDTH}px; height: ${SLIDE_HEIGHT}px; over
 html:not(.ready) body { visibility: hidden; }
 ${SLIDE_CSS_ANIMATIONS_FINISHED}`;
 
+// A slide's generated picture. An HTML or Markdown slide marks where it goes
+// with {{image}} (<img src="{{image}}">, ![…]({{image}}), url({{image}})),
+// and the host's picture, a data: URL, takes its place when the slide is
+// shown: the policy above lets a slide load images from data: URLs only, and
+// the slide's saved HTML keeps the mark, its picture saved apart (imagePath),
+// so a record doesn't carry the picture twice. Marked writes the Markdown
+// form's braces percent-encoded.
+export const SLIDE_IMAGE_MARK = "{{image}}";
+const IMAGE_MARK = /\{\{image\}\}|%7B%7Bimage%7D%7D/gi;
+const DATA_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
+// A transparent pixel, for a picture that couldn't be drawn: no broken-image
+// icon on the slide.
+const NO_IMAGE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/** Whether an HTML or Markdown slide has a place for a picture. */
+export const hasSlideImageMark = (text: string): boolean =>
+  new RegExp(IMAGE_MARK.source, "i").test(text);
+
+/** The slide's HTML with its picture in place of {{image}}: imageData when it
+ *  is a data: URL of an image, else a transparent pixel. */
+export const withSlideImage = (html: string, imageData?: string): string => {
+  const src = imageData && DATA_IMAGE.test(imageData) ? imageData : NO_IMAGE;
+  return html.replace(IMAGE_MARK, () => src);
+};
+
 /** The page an HTML slide is shown as. */
 export function slideHtmlDocument(html: string): string {
   return `<!doctype html>

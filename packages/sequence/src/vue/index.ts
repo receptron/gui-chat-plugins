@@ -29,6 +29,7 @@ import {
   SLIDE_WIDTH,
   chartSlideDocument,
   slideHtmlDocument,
+  withSlideImage,
   type CastData,
   type SlideData,
 } from "../core/index";
@@ -181,7 +182,7 @@ const PresentSlideView = markRaw(
       return () => {
         const data = props.selectedResult.data;
         const page = data?.html
-          ? slideHtmlDocument(data.html)
+          ? slideHtmlDocument(withSlideImage(data.html, data.imageData))
           : data?.chart
             ? chartSlideDocument(data.title, data.chart)
             : "";

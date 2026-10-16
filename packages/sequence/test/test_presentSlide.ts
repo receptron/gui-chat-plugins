@@ -9,6 +9,7 @@ import {
   SLIDE_FIT_SCRIPT,
   neutralizeSlideHtml,
   slideHtmlDocument,
+  withSlideImage,
 } from "../src/core/slideHtml";
 import {
   PRESENT_SLIDE_DEFINITION,
@@ -381,6 +382,174 @@ test("html wins over an imagePrompt sent with it", async () => {
   assert.equal(host.calls.length, 0);
   assert.equal(data(result).prompt, "");
   assert.ok(data(result).html);
+});
+
+test("an HTML slide with {{image}} draws one picture and shows it there; the record keeps the mark", async () => {
+  const host = fakeHost();
+  const name = title("Volcano");
+  const html = `<div class="w-full h-full flex"><img src="{{image}}" alt="a volcano" class="w-1/2"><p>Magma</p></div>`;
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 61,
+    title: name,
+    html,
+    imagePrompt: "an erupting volcano at dusk",
+  });
+
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    String(host.calls[0]?.prompt),
+    /^A picture for a presentation slide titled "Volcano \d+"\. an erupting volcano at dusk No text/,
+  );
+  const { slideshowId, imageData, imagePath, prompt } = data(result);
+  assert.equal(
+    data(result).html,
+    html,
+    "the slide keeps its mark; the View puts the picture there",
+  );
+  assert.equal(imageData, "data:image/png;base64,1");
+  assert.equal(imagePath, "artifacts/images/2026/09/picture1.png");
+  assert.equal(prompt, String(host.calls[0]?.prompt));
+  assert.match(
+    result.message,
+    /saved to artifacts\/images\/2026\/09\/picture1\.png/,
+  );
+  assert.deepEqual(record(host.artifacts, `slideshows/${slideshowId}.json`), {
+    id: slideshowId,
+    title: name,
+    mode: "presentation",
+    totalSlides: 61,
+    slides: {
+      "1": {
+        title: name,
+        imagePrompt: "an erupting volcano at dusk",
+        imagePath,
+        html,
+      },
+    },
+  });
+  assert.equal(
+    withSlideImage(html, String(imageData)),
+    html.replace("{{image}}", "data:image/png;base64,1"),
+  );
+  assert.match(
+    slideHtmlDocument(withSlideImage(html, String(imageData))),
+    /<img src="data:image\/png;base64,1"/,
+  );
+});
+
+test("a Markdown slide with ![…]({{image}}) on a line of its own is two columns: text left, picture right", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 62,
+    title: title("Cells"),
+    markdown: "# Cells\n\n![a plant cell]({{image}})\n\n- Wall\n- Chloroplasts",
+    imagePrompt: "a plant cell under a microscope",
+  });
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    String(host.calls[0]?.prompt),
+    /a plant cell under a microscope Keep the subject in the middle: the picture is cropped to a tall frame\. No text/,
+  );
+  const html = String(data(result).html);
+  assert.match(
+    html,
+    /<div class="slide-md slide-md-split" data-fit style="font-size: \d+px">\n<div class="slide-md-text">\n<h1>Cells<\/h1>/,
+  );
+  assert.match(
+    html,
+    /<\/ul>\n<\/div>\n<img class="slide-md-picture" src="\{\{image\}\}" alt="a plant cell">\n<\/div>$/,
+    "the picture follows the text column",
+  );
+  assert.doesNotMatch(html, /<p><img/, "the picture's line is not in the text");
+  assert.match(
+    withSlideImage(html, "data:image/png;base64,1"),
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="a plant cell">/,
+  );
+  // Within a line, the picture stays where it is (marked writes the braces percent-encoded).
+  const inline = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 65,
+    title: title("Inline"),
+    markdown: "# Inline\n\nA cell ![cell]({{image}}) has a wall.",
+    imagePrompt: "a cell",
+  });
+  const inlineHtml = String(data(inline).html);
+  assert.doesNotMatch(inlineHtml, /class="slide-md slide-md-split"/);
+  assert.match(
+    withSlideImage(inlineHtml, "data:image/png;base64,2"),
+    /<img src="data:image\/png;base64,2" alt="cell">/,
+  );
+});
+
+test("{{image}} without an imagePrompt is refused; an imagePrompt without {{image}} is left out", async () => {
+  const host = fakeHost();
+  const refused = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 63,
+    title: title("No prompt"),
+    html: `<img src="{{image}}">`,
+  });
+  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
+  assert.equal(refused.sequence, null);
+  const plain = await presentSlide(host.context(), {
+    ...htmlSlide(1, 63, title("No mark")),
+    imagePrompt: "a picture with nowhere to go",
+  });
+  assert.equal(data(plain).prompt, "");
+  assert.equal(host.calls.length, 0);
+});
+
+test("a slide whose picture couldn't be drawn is shown without it, and the model is told", async () => {
+  const host = fakeHost({ fail: () => true });
+  const html = `<div><img src="{{image}}"><p>Text</p></div>`;
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 64,
+    title: title("Failed picture"),
+    html,
+    imagePrompt: "something the model refuses",
+  });
+  assert.equal(data(result).html, html);
+  assert.equal(data(result).imageData, undefined);
+  assert.equal(
+    result.instructionsRequired,
+    true,
+    "the slide is on the screen and is explained",
+  );
+  assert.match(
+    result.message,
+    /its picture couldn't be drawn \(image generation failed: refused\), so the slide is shown without it/,
+  );
+  assert.match(
+    withSlideImage(html),
+    /<img src="data:image\/gif;base64,/,
+    "a transparent pixel, not a broken image",
+  );
+});
+
+test("withSlideImage puts in only a data: URL of an image", () => {
+  const html = `<img src="{{image}}"><div style="background:url({{image}})"></div>`;
+  assert.equal(
+    (
+      withSlideImage(html, "data:image/jpeg;base64,AAAA").match(
+        /data:image\/jpeg;base64,AAAA/g,
+      ) ?? []
+    ).length,
+    2,
+  );
+  for (const bad of [
+    "https://example.com/a.png",
+    'data:image/png;base64,AA" onerror="x',
+    "data:text/html;base64,AAAA",
+  ]) {
+    assert.doesNotMatch(
+      withSlideImage(html, bad),
+      /example\.com|onerror|text\/html/,
+      bad,
+    );
+  }
 });
 
 test("a slide with neither an imagePrompt nor html, or too much html, ends the sequence", async () => {

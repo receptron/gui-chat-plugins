@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+- **An HTML or Markdown slide can hold a generated picture.** Give `imagePrompt` with `html` or
+  `markdown`, and mark where the picture goes with `{{image}}`: `<img src="{{image}}" class="…">` in
+  HTML, `![what it shows]({{image}})` in Markdown. The picture is drawn (one per slide) and put in
+  place when the slide is shown (`withSlideImage`, a `data:` URL, which the slide's policy allows);
+  the saved HTML keeps the mark, and the picture is saved apart (`imagePath`). A Markdown slide
+  with the picture on a line of its own is two columns, the text on the left and the picture on
+  the right, filling the slide's height. Without `{{image}}`, an `imagePrompt` sent with `html` or
+  `markdown` is still left out; `{{image}}` without `imagePrompt` is refused. A picture that can't
+  be drawn leaves the slide shown without it, and the model is told. A host that makes a movie of
+  a slideshow puts the saved picture in the same way (`withSlideImage` with the file as a `data:`
+  URL).
+
 ## 0.5.4
 
 - **A story is told aloud, panel by panel.** Asked to tell a panel and call the next one in the same

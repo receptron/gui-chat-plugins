@@ -1,6 +1,7 @@
 // presentSlide: one slide of a spoken slideshow: a generated picture, a
 // slide written in HTML (./slideHtml.ts) or in Markdown (./markdownSlide.ts,
-// made into HTML here), or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
+// made into HTML here), which can hold one generated picture at {{image}},
+// or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
 // when it appears. With the slide number and the total as arguments, the
 // result says where the slideshow is (ToolResult.sequence), and the host can
 // ask the model to go on (gui-chat-protocol's createSequenceKeeper).
@@ -195,20 +196,49 @@ interface SlideContent {
   markdown?: string;
   chart?: SlideChart;
   prompt: string;
+  /** Why an HTML or Markdown slide's picture couldn't be drawn: the slide is
+   *  shown without it. */
+  pictureFailed?: string;
 }
 
+/** The picture an HTML or Markdown slide places at {{image}}: no title in
+ *  it, since the slide has its own, and no text. */
+const placedPicturePrompt = (slide: SlideArgs) =>
+  [
+    `A picture for a presentation slide${slide.title ? ` titled "${slide.title}"` : ""}. ${slide.imagePrompt}`,
+    // A Markdown slide's picture fills a tall right-hand column (object-fit:
+    // cover), which crops a wide picture's sides.
+    slide.markdown
+      ? "Keep the subject in the middle: the picture is cropped to a tall frame."
+      : "",
+    "No text, letters or numbers in the picture.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
 /** The slide's picture, drawn by the host; an HTML slide or a chart is shown
- *  as it is, a Markdown slide as the HTML made of it. */
+ *  as it is, a Markdown slide as the HTML made of it, either with the
+ *  picture it places at {{image}} drawn too. */
 async function slideContent(
   context: SequenceContext,
   show: ShownSlideshow,
   slide: SlideArgs,
 ): Promise<SlideContent | { failed: ToolResult }> {
-  if (slide.html) return { html: slide.html, prompt: "" };
   if (slide.chart) return { chart: slide.chart, prompt: "" };
-  if (slide.markdown) {
-    const html = await markdownSlideHtml(slide.markdown);
-    return { html, markdown: slide.markdown, prompt: "" };
+  if (slide.html || slide.markdown) {
+    const page: { html: string; markdown?: string } = slide.html
+      ? { html: slide.html }
+      : {
+          html: await markdownSlideHtml(slide.markdown ?? ""),
+          markdown: slide.markdown ?? "",
+        };
+    // parseSlideArgs keeps an imagePrompt only for a slide with {{image}}.
+    if (!slide.imagePrompt) return { ...page, prompt: "" };
+    const prompt = placedPicturePrompt(slide);
+    const image = await drawPicture(context, prompt);
+    const { imageData, imagePath } = imageOf(image);
+    if (!imageData) return { ...page, prompt, pictureFailed: image.message };
+    return { ...page, imageData, ...(imagePath && { imagePath }), prompt };
   }
   const previous = show.slides.get(slide.slide - 1);
   const previousPath =
@@ -232,7 +262,8 @@ async function makeSlide(
 ): Promise<ToolResult> {
   const content = await slideContent(context, show, slide);
   if ("failed" in content) return content.failed;
-  const { imageData, imagePath, html, markdown, chart, prompt } = content;
+  const { imageData, imagePath, html, markdown, chart, prompt, pictureFailed } =
+    content;
 
   const slideshowId = show.id;
   const recorded = await updateRecord<Slideshow>(
@@ -280,6 +311,9 @@ async function makeSlide(
     message: [
       `${noun} ${slide.slide} of ${slide.totalSlides} of slideshow "${slideshowId}" is on the screen`,
       imagePath ? `saved to ${imagePath}` : "",
+      pictureFailed
+        ? `its picture couldn't be drawn (${pictureFailed}), so the slide is shown without it`
+        : "",
       recorded ? "" : NOT_SAVED("slideshow"),
     ]
       .filter(Boolean)

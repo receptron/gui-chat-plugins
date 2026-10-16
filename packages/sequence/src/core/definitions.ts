@@ -4,7 +4,13 @@
 // From MulmoChat (server/plugins/sequenceTools.ts) and MulmoGlass.
 import type { ToolDefinition } from "gui-chat-protocol";
 import { SLIDE_CHART_TYPES, type SlideChart } from "./chartSlide";
-import { MAX_SLIDE_HTML, SLIDE_HEIGHT, SLIDE_WIDTH } from "./slideHtml";
+import {
+  MAX_SLIDE_HTML,
+  SLIDE_HEIGHT,
+  SLIDE_IMAGE_MARK,
+  SLIDE_WIDTH,
+  hasSlideImageMark,
+} from "./slideHtml";
 
 export const PRESENT_SLIDE = "presentSlide";
 export const DEFINE_STORYBOARD = "defineStoryboard";
@@ -37,7 +43,8 @@ export interface SlideArgs {
   slide: number;
   totalSlides: number;
   title: string;
-  /** The picture's prompt; "" for a slide that isn't a picture. */
+  /** The picture's prompt: a picture slide's, or the picture an HTML or
+   *  Markdown slide places at {{image}}; "" for a slide without one. */
   imagePrompt: string;
   /** An HTML slide's body. */
   html?: string;
@@ -52,6 +59,8 @@ export const SLIDE_ARGS_ERROR =
   "presentSlide needs slide and totalSlides (whole numbers, slide from 1 to totalSlides), and one of imagePrompt, html, markdown or chart";
 
 export const SLIDE_HTML_TOO_LONG = `presentSlide's slide is too long: keep its html, markdown or chart under ${MAX_SLIDE_HTML} characters`;
+
+export const SLIDE_IMAGE_WITHOUT_PROMPT = `presentSlide's slide has ${SLIDE_IMAGE_MARK} but no imagePrompt: give imagePrompt for the picture that goes there, or take ${SLIDE_IMAGE_MARK} out`;
 
 export const SLIDE_CHART_INVALID = `presentSlide's chart must be a Chart.js configuration: an object with type (${SLIDE_CHART_TYPES.join(", ")}), data ({ labels, datasets }) and optionally options`;
 
@@ -102,11 +111,15 @@ export function parseSlideArgs(
   );
   if (size > MAX_SLIDE_HTML) return SLIDE_HTML_TOO_LONG;
   const picture = !html && !markdown && !chart;
+  // An HTML or Markdown slide with a place for a picture ({{image}}) has one;
+  // without the place, an imagePrompt sent with it is left out, as before.
+  const placed = hasSlideImageMark(html || markdown);
+  if (placed && !text(imagePrompt)) return SLIDE_IMAGE_WITHOUT_PROMPT;
   return {
     slide,
     totalSlides,
     title: typeof title === "string" ? title : "",
-    imagePrompt: picture ? String(imagePrompt) : "",
+    imagePrompt: picture || placed ? String(imagePrompt) : "",
     ...(html && { html }),
     ...(markdown && { markdown }),
     ...(chart && { chart }),
@@ -164,11 +177,13 @@ export interface Slideshow {
     string,
     {
       title: string;
-      /** "" for a slide that isn't a picture. */
+      /** "" for a slide without a picture. */
       imagePrompt: string;
+      /** A picture slide's picture, or the one an HTML or Markdown slide
+       *  places at {{image}} (withSlideImage). */
       imagePath?: string;
       /** An HTML slide's body (slideHtmlDocument makes it a page); for a
-       *  Markdown slide, the HTML made of it. */
+       *  Markdown slide, the HTML made of it. Keeps {{image}}. */
       html?: string;
       /** A Markdown slide's text, as the model wrote it. */
       markdown?: string;
@@ -186,7 +201,7 @@ export interface SlideData {
   html?: string;
   markdown?: string;
   chart?: SlideChart;
-  /** The picture's prompt; "" for a slide that isn't a picture. */
+  /** The picture's prompt; "" for a slide without a picture. */
   prompt: string;
   slideshowId: string;
   slide: number;
@@ -196,25 +211,24 @@ export interface SlideData {
 }
 
 const SLIDE_HTML_DESCRIPTION = [
-  `For an HTML slide, instead of imagePrompt: the slide's content, the inside of <body> only (no <html>, <head> or <body> tags), for a ${SLIDE_WIDTH}x${SLIDE_HEIGHT} px canvas, which it should fill (start with a <div class="w-full h-full ...">). Style it with Tailwind CSS v4 classes, which are loaded for you: a clear layout, a large title (text-6xl or so), few words in large type, a color scheme, and inline SVG or emoji for icons and diagrams. There is no network: no <img> from URLs, no links to follow.`,
+  `For an HTML slide: the slide's content, the inside of <body> only (no <html>, <head> or <body> tags), for a ${SLIDE_WIDTH}x${SLIDE_HEIGHT} px canvas, which it should fill (start with a <div class="w-full h-full ...">). Style it with Tailwind CSS v4 classes, which are loaded for you: a clear layout, a large title (text-6xl or so), few words in large type, a color scheme, and inline SVG or emoji for icons and diagrams. There is no network: no <img> from URLs, no links to follow. For one generated picture on the slide (a photo, a scene, an object beside the text), give imagePrompt too and put <img src="${SLIDE_IMAGE_MARK}" alt="..." class="..."> where it goes, sized by its classes (for example class="w-1/2 h-full object-cover rounded-2xl").`,
   `Animate it so it builds up as you explain it, with MulmoCast's data-animation attributes (the same ones make it move in a movie of the slideshow): data-animation="animate" with data-opacity="0,1", data-translate-x, data-translate-y (px), data-scale, data-rotate (deg), data-width or data-height ("0,80,%"), each "from,to"; data-animation="counter" with data-from, data-to, data-decimals, data-prefix, data-suffix; data-animation="typewriter" (its text, or data-text). Give every one data-start and data-end in seconds, and optionally data-easing (linear, easeIn, easeOut, easeInOut); stagger the parts with later data-start values so they appear one after another over a few seconds (for example 0, 0.6, 1.2). Set the first frame inline too (style="opacity:0" on an element that fades in).`,
   `CSS animations, transitions and scripts don't play: animate only with data-animation. A <style> for layout is allowed (and Google Fonts by @import).`,
 ].join(" ");
 
-const SLIDE_MARKDOWN_DESCRIPTION =
-  "For a Markdown slide, instead of imagePrompt: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$.";
+const SLIDE_MARKDOWN_DESCRIPTION = `For a Markdown slide: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$. For one generated picture on the slide, give imagePrompt too and put ![what it shows](${SLIDE_IMAGE_MARK}) where it goes.`;
 
 const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt (for numbers: real figures you have, never a picture of a chart): a Chart.js configuration as JSON text, {"type": ..., "data": ...}: { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
 
 export const PRESENT_SLIDE_PROMPT: string =
-  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides (more when the subject or your instructions need them), then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it, and explain everything on a slide before showing the next; put on a slide only what you will explain. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. Numbers go on a chart slide: when you have figures (from a search, a document or the user: revenue, market share, growth, prices, counts over time), show them in a chart with those exact values, labelled with their units and the year or period, and say where they come from. Figures over time, shares of a whole or values side by side are a chart, not a list or table on a Markdown or HTML slide. Never make a chart, graph or table a picture (imagePrompt): a picture of a chart has made-up bars and no real numbers. A slideshow about a business, a market or a comparison of companies has its figures on chart slides, not only in text. Never invent figures; with none to show, leave the chart out. A slide holds only its subject, never notes about your work (what you searched for, that a search succeeded). When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
+  'When the user asks for a slideshow (or to explain something with slides), plan four to six slides (more when the subject or your instructions need them), then show them one at a time with presentSlide: slide 1 first, and each next slide only after you have explained the one on the screen. Explain the subject, not the slides: say what the slide teaches, not that a slide is about it, and explain everything on a slide before showing the next; put on a slide only what you will explain. Go on to the last slide without asking whether to continue. A slide is a generated picture (imagePrompt), a chart (chart), a text slide in Markdown (markdown) or a designed slide in HTML (html): use a picture for a scene, an object or a place; a chart for numbers to compare, a trend or proportions; Markdown for equations and formulas (TeX math), definitions, short lists and small tables; and HTML for designed layouts, comparisons, timelines and diagrams. A picture model draws words, numbers and math badly, so they go on the other kinds; a slideshow can mix them. When a picture helps the text (the thing being explained, beside its key points), make an HTML or Markdown slide with one generated picture on it: imagePrompt for the picture, and {{image}} where it goes. Numbers go on a chart slide: when you have figures (from a search, a document or the user: revenue, market share, growth, prices, counts over time), show them in a chart with those exact values, labelled with their units and the year or period, and say where they come from. Figures over time, shares of a whole or values side by side are a chart, not a list or table on a Markdown or HTML slide. Never make a chart, graph or table a picture (imagePrompt): a picture of a chart has made-up bars and no real numbers. A slideshow about a business, a market or a comparison of companies has its figures on chart slides, not only in text. Never invent figures; with none to show, leave the chart out. A slide holds only its subject, never notes about your work (what you searched for, that a search succeeded). When the user asks for HTML slides (slides in HTML, an HTML presentation), this is the tool: make them HTML slides with presentSlide, one call per slide, not one HTML page. When the user wants to be shown how to do something they will do along with you (cooking, folding, fixing, an exercise), make it a step-by-step guide instead: mode "steps", one slide per step, and after each step wait for the user to say they are ready. Use generateImage for a single picture, not for slides.';
 
 export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
   type: "function",
   name: PRESENT_SLIDE,
   prompt: PRESENT_SLIDE_PROMPT,
   description:
-    'Show one slide of a slideshow, full screen: a picture generated from imagePrompt, a chart (chart), a slide written in Markdown with TeX math (markdown), or a slide written in HTML (html). Give one of the four. Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
+    'Show one slide of a slideshow, full screen: a picture generated from imagePrompt, a chart (chart), a slide written in Markdown with TeX math (markdown), or a slide written in HTML (html). Give one of the four; an HTML or Markdown slide can also hold one generated picture (imagePrompt, placed at {{image}}). Call it once per slide, in order, starting with slide 1. With mode "steps" it is a step-by-step guide: one slide per step, and the next step waits for the user.',
   parameters: {
     type: "object",
     properties: {
@@ -231,7 +245,7 @@ export const PRESENT_SLIDE_DEFINITION: ToolDefinition = {
       imagePrompt: {
         type: "string",
         description:
-          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. Never a chart, graph, table, dashboard, infographic, key figures or anything with numbers: those are chart, Markdown or HTML slides. For a step, show the action: hands, tools and the object. Leave it out for a chart, Markdown or HTML slide.",
+          "For a picture slide: the picture, a clear illustration of its point, with the title as its only large text. Be concrete. Never a chart, graph, table, dashboard, infographic, key figures or anything with numbers: those are chart, Markdown or HTML slides. For a step, show the action: hands, tools and the object. With html or markdown, it is the one picture placed where the slide has {{image}}; leave it out for a chart, and for an HTML or Markdown slide without {{image}}.",
       },
       html: {
         type: "string",
