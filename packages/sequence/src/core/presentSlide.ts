@@ -1,7 +1,8 @@
 // presentSlide: one slide of a spoken slideshow: a generated picture, a
 // slide written in HTML (./slideHtml.ts) or in Markdown (./markdownSlide.ts,
 // made into HTML here), which can hold one generated picture at {{image}},
-// or a chart (./chartSlide.ts). The model calls it once per slide, in order, and explains each slide
+// or a chart (./chartSlide.ts). A picture can come from the web instead
+// (imageUrl, ./webImage.ts). The model calls it once per slide, in order, and explains each slide
 // when it appears. With the slide number and the total as arguments, the
 // result says where the slideshow is (ToolResult.sequence), and the host can
 // ask the model to go on (gui-chat-protocol's createSequenceKeeper).
@@ -41,6 +42,7 @@ import { markdownSlideHtml } from "./markdownSlide";
 import { hasSlideImageMark, slideImageAlt } from "./slideHtml";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
+import { fetchWebImage } from "./webImage";
 
 /** Where the slideshow is after a slide was shown. */
 export function slideSequenceStep({
@@ -73,7 +75,16 @@ export function slideSequenceStep({
 // drawn again, so that slideshow's record has it.
 const slideKey = (
   slideshowId: string,
-  { slide, totalSlides, title, imagePrompt, html, markdown, chart }: SlideArgs,
+  {
+    slide,
+    totalSlides,
+    title,
+    imagePrompt,
+    imageUrl,
+    html,
+    markdown,
+    chart,
+  }: SlideArgs,
 ) =>
   JSON.stringify([
     slideshowId,
@@ -81,6 +92,7 @@ const slideKey = (
     totalSlides,
     title,
     imagePrompt,
+    imageUrl,
     html,
     markdown,
     chart,
@@ -191,6 +203,8 @@ function slidePrompt(slide: SlideArgs, hasReference: boolean): string {
 interface SlideContent {
   imageData?: string;
   imagePath?: string;
+  /** Where the picture came from, when it is from the web. */
+  imageUrl?: string;
   html?: string;
   markdown?: string;
   chart?: SlideChart;
@@ -198,6 +212,8 @@ interface SlideContent {
   /** Why an HTML or Markdown slide's picture couldn't be drawn: the slide is
    *  shown without it. */
   pictureFailed?: string;
+  /** Why the picture at imageUrl couldn't be shown: it was drawn instead. */
+  urlFailed?: string;
   /** What an HTML or Markdown slide's picture shows, as saved: imagePrompt,
    *  else the picture's alt text, else the title. */
   imagePrompt?: string;
@@ -236,9 +252,25 @@ const placedPicturePrompt = (slide: SlideArgs, hasReference: boolean) =>
     .filter(Boolean)
     .join(" ");
 
-/** The slide's picture, drawn by the host; an HTML slide or a chart is shown
- *  as it is, a Markdown slide as the HTML made of it, either with the
- *  picture it places at {{image}} drawn too. */
+/** The picture at imageUrl, or why it couldn't be shown. */
+async function webPicture(
+  context: SequenceContext,
+  imageUrl: string,
+): Promise<{ imageData: string; imagePath?: string } | { error: string }> {
+  const fetched = await fetchWebImage(imageUrl, context.files?.artifacts);
+  if ("error" in fetched) {
+    console.info(
+      `[sequence] picture at ${imageUrl} not shown: ${fetched.error}`,
+    );
+  }
+  return fetched;
+}
+
+/** The slide's picture, from the web or drawn by the host; an HTML slide or
+ *  a chart is shown as it is, a Markdown slide as the HTML made of it,
+ *  either with the picture it places at {{image}} too. A picture at
+ *  imageUrl that can't be fetched is drawn instead, when there is a
+ *  description to draw. */
 async function slideContent(
   context: SequenceContext,
   show: ShownSlideshow,
@@ -261,6 +293,20 @@ async function slideContent(
     // (seen in MulmoChat): that description, else the title, is drawn.
     const imagePrompt =
       slide.imagePrompt || slideImageAlt(page.html) || slide.title;
+    let urlFailed: string | undefined;
+    if (slide.imageUrl) {
+      const web = await webPicture(context, slide.imageUrl);
+      if (!("error" in web)) {
+        return {
+          ...page,
+          ...web,
+          imageUrl: slide.imageUrl,
+          prompt: imagePrompt,
+          imagePrompt,
+        };
+      }
+      urlFailed = web.error;
+    }
     const described = { ...slide, imagePrompt };
     // A guide step's picture is drawn from the step before's, as a picture
     // step's is, so the objects and the setting stay the same.
@@ -268,8 +314,15 @@ async function slideContent(
     const prompt = placedPicturePrompt(described, references.length > 0);
     const image = await drawPicture(context, prompt, references);
     const { imageData, imagePath } = imageOf(image);
+    const failedUrl = urlFailed !== undefined && { urlFailed };
     if (!imageData) {
-      return { ...page, prompt, imagePrompt, pictureFailed: image.message };
+      return {
+        ...page,
+        prompt,
+        imagePrompt,
+        pictureFailed: image.message,
+        ...failedUrl,
+      };
     }
     return {
       ...page,
@@ -277,7 +330,30 @@ async function slideContent(
       ...(imagePath && { imagePath }),
       prompt,
       imagePrompt,
+      ...failedUrl,
     };
+  }
+  let urlFailed: string | undefined;
+  if (slide.imageUrl) {
+    const web = await webPicture(context, slide.imageUrl);
+    if (!("error" in web)) {
+      return {
+        ...web,
+        imageUrl: slide.imageUrl,
+        // The picture's alt text in the View.
+        prompt: slide.imagePrompt || slide.title,
+      };
+    }
+    // Nothing to draw instead: the model is told why, and can try another.
+    if (!slide.imagePrompt) {
+      return {
+        failed: {
+          message: `the picture at ${slide.imageUrl} couldn't be shown: ${web.error}. Call presentSlide again with another imageUrl (an image file's address), or with imagePrompt to draw it.`,
+          sequence: null,
+        },
+      };
+    }
+    urlFailed = web.error;
   }
   const references = await stepReferences(context, show, slide);
   const prompt = slidePrompt(slide, references.length > 0);
@@ -285,7 +361,12 @@ async function slideContent(
   const { imageData, imagePath } = imageOf(image);
   // A failure keeps the image host's message and instructions.
   if (!imageData) return { failed: { ...image, sequence: null } };
-  return { imageData, ...(imagePath && { imagePath }), prompt };
+  return {
+    imageData,
+    ...(imagePath && { imagePath }),
+    prompt,
+    ...(urlFailed !== undefined && { urlFailed }),
+  };
 }
 
 /** Make a slide and save it in its slideshow's record. */
@@ -296,8 +377,17 @@ async function makeSlide(
 ): Promise<ToolResult> {
   const content = await slideContent(context, show, slide);
   if ("failed" in content) return content.failed;
-  const { imageData, imagePath, html, markdown, chart, prompt, pictureFailed } =
-    content;
+  const {
+    imageData,
+    imagePath,
+    imageUrl,
+    html,
+    markdown,
+    chart,
+    prompt,
+    pictureFailed,
+    urlFailed,
+  } = content;
 
   const slideshowId = show.id;
   const recorded = await updateRecord<Slideshow>(
@@ -318,6 +408,7 @@ async function makeSlide(
         // A Markdown slide's imagePrompt with no place for it is left out.
         imagePrompt: html ? (content.imagePrompt ?? "") : slide.imagePrompt,
         ...(imagePath && { imagePath }),
+        ...(imageUrl && { imageUrl }),
         ...(html && { html }),
         ...(markdown && { markdown }),
         ...(chart && { chart }),
@@ -329,6 +420,7 @@ async function makeSlide(
   const data: SlideData = {
     ...(imageData && { imageData }),
     ...(imagePath && { imagePath }),
+    ...(imageUrl && { imageUrl }),
     ...(html && { html }),
     ...(markdown && { markdown }),
     ...(chart && { chart }),
@@ -345,7 +437,11 @@ async function makeSlide(
     title: slide.title || `Slide ${slide.slide}`,
     message: [
       `${noun} ${slide.slide} of ${slide.totalSlides} of slideshow "${slideshowId}" is on the screen`,
+      imageUrl ? `its picture is from ${imageUrl}` : "",
       imagePath ? `saved to ${imagePath}` : "",
+      urlFailed !== undefined
+        ? `the picture at ${slide.imageUrl} couldn't be shown (${urlFailed}), so it was drawn instead`
+        : "",
       pictureFailed
         ? `its picture couldn't be drawn (${pictureFailed}), so the slide is shown without it`
         : "",

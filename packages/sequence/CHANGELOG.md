@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- **A slide's picture can come from the web (`imageUrl`).** The slides' policy lets an image come
+  only from a `data:` URL, so a picture the model found in a search couldn't be shown. `imageUrl`
+  is an image file's address: `execute()` fetches it, shows it as a `data:` URL (the policy is
+  unchanged) and saves it under `artifacts/images/` like a generated picture. It works on a picture
+  slide and at an HTML or Markdown slide's `{{image}}`. Only `https` addresses of named sites are
+  fetched, redirects are checked the same way, and only a PNG, JPEG, GIF or WebP picture of at
+  most 5 MB is shown. One that can't be fetched is drawn from `imagePrompt` (or the alt text)
+  instead, and the model is told; with nothing to draw, the slide isn't shown and the model is
+  told why. The result and the record keep the address in `imageUrl`.
+
 ## 0.6.3
 
 - **`& % #` inside `\text{}` are escaped before KaTeX reads the math.** In MulmoChat, a model wrote
