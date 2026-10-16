@@ -131,13 +131,18 @@ const PREVIEW_PROPERTIES = [
 
 const ATTRIBUTE = /([a-z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
 
+// A character reference past Unicode (&#x110000;) is left as written:
+// String.fromCodePoint would throw, and the page is anyone's.
+const character = (entity: string, codePoint: number) =>
+  codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+
 const decodeEntities = (value: string) =>
   value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
-      String.fromCodePoint(parseInt(hex, 16)),
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) =>
+      character(entity, parseInt(hex, 16)),
     )
-    .replace(/&#(\d+);/g, (_, decimal: string) =>
-      String.fromCodePoint(Number(decimal)),
+    .replace(/&#(\d+);/g, (entity, decimal: string) =>
+      character(entity, Number(decimal)),
     )
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")

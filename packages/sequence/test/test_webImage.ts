@@ -411,3 +411,21 @@ test("an imageUrl on a slide with no place for a picture isn't fetched, and the 
     /the picture at https:\/\/example\.com\/article isn't shown: the slide has no \{\{image\}\} for it/,
   );
 });
+
+test("a character reference past Unicode in a page's meta tags doesn't stop the slide", async () => {
+  web.set(
+    "https://example.com/odd",
+    page(
+      '<meta property="og:title" content="&#x110000; &#99999999999;"><meta property="og:image" content="https://example.com/tower.png">',
+    ),
+  );
+  const result = await fetchWebImage("https://example.com/odd", undefined);
+  assert.ok("imageData" in result);
+  assert.equal(
+    pagePreviewImage(
+      '<meta property="og:image" content="https://x.example/a&#x110000;.jpg">',
+      "https://x.example/",
+    ),
+    "https://x.example/a&#x110000;.jpg",
+  );
+});
