@@ -182,7 +182,13 @@ const PresentSlideView = markRaw(
       return () => {
         const data = props.selectedResult.data;
         const page = data?.html
-          ? slideHtmlDocument(withSlideImage(data.html, data.imageData))
+          ? slideHtmlDocument(
+              // A slide that placed a picture has its prompt; another keeps
+              // its HTML as written.
+              data.prompt
+                ? withSlideImage(data.html, data.imageData)
+                : data.html,
+            )
           : data?.chart
             ? chartSlideDocument(data.title, data.chart)
             : "";

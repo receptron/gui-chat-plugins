@@ -302,7 +302,9 @@ const NO_IMAGE =
 
 // Markdown's picture, outside code: fenced and indented blocks and inline
 // code spans are taken out first, so an example of the syntax isn't one.
-const MARKDOWN_PICTURE = /!\[[^\]\n]*\]\(\s*\{\{image\}\}\s*\)/i;
+// An optional title after the URL, as Markdown allows: ![a](src "title").
+const MARKDOWN_PICTURE =
+  /!\[[^\]\n]*\]\(\s*<?\{\{image\}\}>?(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/i;
 const MARKDOWN_CODE =
   /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$|^(?: {4}|\t).*$|`[^`\n]*`/gm;
 
@@ -316,11 +318,22 @@ export const hasSlideImageMark = (
     ? new RegExp(IMAGE_PLACE.source, "i").test(text)
     : MARKDOWN_PICTURE.test(text.replace(MARKDOWN_CODE, ""));
 
-/** The slide's HTML with its picture in place of {{image}}: imageData when it
- *  is a data: URL of an image, else a transparent pixel. */
+// Code shown on the slide, which is text whatever it says.
+const CODE = /(<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>)/gi;
+
+/** The slide's HTML with its picture in place of {{image}}, outside <pre>
+ *  and <code>: imageData when it is a data: URL of an image, else a
+ *  transparent pixel. */
 export const withSlideImage = (html: string, imageData?: string): string => {
   const src = imageData && DATA_IMAGE.test(imageData) ? imageData : NO_IMAGE;
-  return html.replace(IMAGE_PLACE, (_, before: string) => before + src);
+  return html
+    .split(CODE)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(IMAGE_PLACE, (_, before: string) => before + src),
+    )
+    .join("");
 };
 
 /** The page an HTML slide is shown as. */

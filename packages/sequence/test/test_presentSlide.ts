@@ -618,6 +618,31 @@ test("an example in a code block is code: no picture column, and its {{image}} s
   assert.equal(host.calls.length, calls);
 });
 
+test("a titled Markdown picture is a place for a picture too", async () => {
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 69,
+    title: title("Titled"),
+    markdown: '# Cells\n\n![cell]({{image}} "Plant cell")\n\n- Wall',
+    imagePrompt: "a plant cell",
+  });
+  assert.equal(host.calls.length, 1);
+  assert.match(
+    withSlideImage(String(data(result).html), "data:image/png;base64,1"),
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="cell">/,
+  );
+});
+
+test("withSlideImage leaves code alone: an example of url({{image}}) stays as written", () => {
+  const html =
+    '<pre><code>background: url({{image}});\n&lt;img src="{{image}}"&gt;</code></pre><p>Use <code>src="{{image}}"</code>.</p><img src="{{image}}">';
+  const shown = withSlideImage(html, "data:image/png;base64,1");
+  assert.match(shown, /<pre><code>background: url\(\{\{image\}\}\);/);
+  assert.match(shown, /<code>src="\{\{image\}\}"<\/code>/);
+  assert.match(shown, /<\/p><img src="data:image\/png;base64,1">$/);
+});
+
 test("withSlideImage puts in only a data: URL of an image", () => {
   const html = `<img src="{{image}}"><div style="background:url({{image}})"></div>`;
   assert.equal(
