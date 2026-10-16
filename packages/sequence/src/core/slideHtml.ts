@@ -315,6 +315,29 @@ export const hasSlideImageMark = (html: string): boolean =>
         i % 2 === 0 && new RegExp(IMAGE_PLACE.source, "i").test(part),
     );
 
+const ENTITY_TEXT: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+/** The alt text of the <img> that places the slide's picture (outside code),
+ *  or "": what a model that left out imagePrompt said the picture shows. */
+export const slideImageAlt = (html: string): string => {
+  for (const part of html.split(CODE).filter((_, i) => i % 2 === 0)) {
+    for (const tag of part.match(/<img\b[^>]*>/gi) ?? []) {
+      if (!new RegExp(IMAGE_PLACE.source, "i").test(tag)) continue;
+      const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+      return (alt?.[1] ?? alt?.[2] ?? "")
+        .replace(/&(?:amp|lt|gt|quot|#39);/g, (e) => ENTITY_TEXT[e] ?? e)
+        .trim();
+    }
+  }
+  return "";
+};
+
 /** The slide's HTML with its picture in place of {{image}}, outside <pre>
  *  and <code>: imageData when it is a data: URL of an image, else a
  *  transparent pixel. */

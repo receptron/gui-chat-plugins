@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2
+
+- **A picture without `imagePrompt` is drawn from its alt text.** In MulmoChat, a model described
+  the picture in `![A purple sea urchin … ]({{image}})` and sent no `imagePrompt`; the slide was
+  refused, which ended the slideshow. The picture's alt text is now what is drawn, or the slide's
+  title when there is none, and it is saved as the slide's `imagePrompt`. Nothing is refused for a
+  missing `imagePrompt` any more (`SLIDE_IMAGE_WITHOUT_PROMPT` is gone).
+
 ## 0.6.1
 
 - **`{{image}}` alone on its line is a Markdown slide's picture too.** In MulmoChat, models wrote the

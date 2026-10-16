@@ -60,8 +60,6 @@ export const SLIDE_ARGS_ERROR =
 
 export const SLIDE_HTML_TOO_LONG = `presentSlide's slide is too long: keep its html, markdown or chart under ${MAX_SLIDE_HTML} characters`;
 
-export const SLIDE_IMAGE_WITHOUT_PROMPT = `presentSlide's slide has ${SLIDE_IMAGE_MARK} but no imagePrompt: give imagePrompt for the picture that goes there, or take ${SLIDE_IMAGE_MARK} out`;
-
 export const SLIDE_CHART_INVALID = `presentSlide's chart must be a Chart.js configuration: an object with type (${SLIDE_CHART_TYPES.join(", ")}), data ({ labels, datasets }) and optionally options`;
 
 /** A chart argument as a Chart.js configuration, or null. Some models send
@@ -114,16 +112,18 @@ export function parseSlideArgs(
   // An HTML slide with a place for a picture ({{image}}) has one; without the
   // place, an imagePrompt sent with it is left out, as before. A Markdown
   // slide keeps its imagePrompt until it is made into HTML, which says
-  // whether it has the place (presentSlide).
+  // whether it has the place (presentSlide). A place without an imagePrompt
+  // is drawn from the picture's alt text, else the title (presentSlide):
+  // models put the description there, and refusing ended the slideshow.
   const placed = !!html && hasSlideImageMark(html);
-  if (placed && !text(imagePrompt)) return SLIDE_IMAGE_WITHOUT_PROMPT;
   return {
     slide,
     totalSlides,
     title: typeof title === "string" ? title : "",
-    imagePrompt:
-      picture || placed || (markdown && text(imagePrompt))
-        ? String(imagePrompt)
+    imagePrompt: picture
+      ? String(imagePrompt)
+      : placed || markdown
+        ? text(imagePrompt)
         : "",
     ...(html && { html }),
     ...(markdown && { markdown }),
@@ -221,7 +221,7 @@ const SLIDE_HTML_DESCRIPTION = [
   `CSS animations, transitions and scripts don't play: animate only with data-animation. A <style> for layout is allowed (and Google Fonts by @import).`,
 ].join(" ");
 
-const SLIDE_MARKDOWN_DESCRIPTION = `For a Markdown slide: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$. For one generated picture on the slide, give imagePrompt too and put ![what it shows](${SLIDE_IMAGE_MARK}) on a line of its own: the slide is then two columns, the text on the left and the picture on the right.`;
+const SLIDE_MARKDOWN_DESCRIPTION = `For a Markdown slide: the slide in Markdown (GitHub's: headings, lists, bold, tables, code), with math in TeX between $...$ inline or $$...$$ for a displayed equation (on lines of its own). Start with a # heading, and keep it to what fits on one slide: a heading and a few lines, a list or an equation or two. Write a dollar sign that isn't math as \\$. For one generated picture on the slide, give imagePrompt too and put ![what it shows](${SLIDE_IMAGE_MARK}) on a line of its own: the slide is then two columns, the text on the left and the picture on the right. Without imagePrompt, the alt text is what is drawn.`;
 
 const SLIDE_CHART_DESCRIPTION = `For a chart slide, instead of imagePrompt (for numbers: real figures you have, never a picture of a chart): a Chart.js configuration as JSON text, {"type": ..., "data": ...}: { type, data: { labels, datasets: [{ label, data, backgroundColor }] }, options }. type is one of ${SLIDE_CHART_TYPES.join(", ")}. It is drawn under the slide's title, so leave out options.plugins.title; give the datasets colors, and the axes titles (options.scales.x.title) when their units aren't obvious. JSON values only: no functions.`;
 

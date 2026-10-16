@@ -86,7 +86,7 @@ HTML itself (reading `imagePath` as a `data:` URL). A Markdown slide whose pictu
 its own is laid out in two columns: the text on the left, the picture on the right, filling the
 slide's height (`object-fit: cover`, so the picture is asked to keep its subject in the middle).
 Without `{{image}}`, an `imagePrompt` sent with `html` or `markdown` is left out; `{{image}}`
-without `imagePrompt` is refused. When the picture can't be drawn, the slide is shown without it
+without `imagePrompt` is drawn from the picture's alt text, or the slide's title when it has none. When the picture can't be drawn, the slide is shown without it
 and the model is told.
 
 ### Markdown slides
