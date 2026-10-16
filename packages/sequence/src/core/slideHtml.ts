@@ -291,6 +291,10 @@ ${SLIDE_CSS_ANIMATIONS_FINISHED}`;
 // form's braces percent-encoded.
 export const SLIDE_IMAGE_MARK = "{{image}}";
 const IMAGE_MARK = /\{\{image\}\}|%7B%7Bimage%7D%7D/gi;
+// Only where a picture can be: an src attribute or a CSS url(), so a code
+// example that shows {{image}} keeps it as text.
+const IMAGE_PLACE =
+  /(\bsrc\s*=\s*["']?|\burl\(\s*["']?)(?:\{\{image\}\}|%7B%7Bimage%7D%7D)/gi;
 const DATA_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
 // A transparent pixel, for a picture that couldn't be drawn: no broken-image
 // icon on the slide.
@@ -305,7 +309,7 @@ export const hasSlideImageMark = (text: string): boolean =>
  *  is a data: URL of an image, else a transparent pixel. */
 export const withSlideImage = (html: string, imageData?: string): string => {
   const src = imageData && DATA_IMAGE.test(imageData) ? imageData : NO_IMAGE;
-  return html.replace(IMAGE_MARK, () => src);
+  return html.replace(IMAGE_PLACE, (_, before: string) => before + src);
 };
 
 /** The page an HTML slide is shown as. */

@@ -556,6 +556,52 @@ test("a guide step's placed picture is drawn from the step before's picture", as
   );
 });
 
+test("an example in a code block is code: no picture column, and its {{image}} stays text", async () => {
+  const host = fakeHost();
+  const markdown =
+    "# Syntax\n\n```md\n![a cell]({{image}})\n```\n\n![the result]({{image}})";
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 67,
+    title: title("Code example"),
+    markdown,
+    imagePrompt: "a cell",
+  });
+  const html = String(data(result).html);
+  assert.match(
+    html,
+    /class="slide-md slide-md-split"/,
+    "the paragraph-only picture still makes the columns",
+  );
+  assert.match(
+    html,
+    /<code class="language-md">!\[a cell\]\(\{\{image\}\}\)\n<\/code>/,
+    "the example is kept as written",
+  );
+  const shown = withSlideImage(html, "data:image/png;base64,1");
+  assert.match(
+    shown,
+    /<code class="language-md">!\[a cell\]\(\{\{image\}\}\)/,
+    "and isn't replaced",
+  );
+  assert.match(
+    shown,
+    /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="the result">/,
+  );
+
+  const onlyCode = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 68,
+    title: title("Only code"),
+    markdown: "# Syntax\n\n```md\n![a cell]({{image}})\n```",
+    imagePrompt: "a cell",
+  });
+  assert.doesNotMatch(
+    String(data(onlyCode).html),
+    /class="slide-md slide-md-split"/,
+  );
+});
+
 test("withSlideImage puts in only a data: URL of an image", () => {
   const html = `<img src="{{image}}"><div style="background:url({{image}})"></div>`;
   assert.equal(

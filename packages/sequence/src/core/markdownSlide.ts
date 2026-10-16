@@ -10,7 +10,12 @@
 // execute(), a server included. marked and KaTeX are imported when a
 // Markdown slide is made, so a host that never makes one doesn't load them.
 import type { TokenizerAndRendererExtension } from "marked";
-import { SLIDE_HEIGHT, SLIDE_WIDTH, escapeHtml } from "./slideHtml";
+import {
+  SLIDE_HEIGHT,
+  SLIDE_IMAGE_MARK,
+  SLIDE_WIDTH,
+  escapeHtml,
+} from "./slideHtml";
 
 /** The class of a Markdown slide's box, which its style is scoped to. */
 const BOX = "slide-md";
@@ -20,7 +25,6 @@ const BOX = "slide-md";
 const SPLIT = "slide-md-split";
 const TEXT = "slide-md-text";
 const PICTURE = "slide-md-picture";
-const PICTURE_LINE = /^[ \t]*!\[([^\]\n]*)\]\(\s*\{\{image\}\}\s*\)[ \t]*$/im;
 // The text column is about half the slide: it starts smaller.
 const SPLIT_FONT_SCALE = 0.8;
 
@@ -167,16 +171,27 @@ export async function markdownSlideHtml(markdown: string): Promise<string> {
   };
   const marked = new Marked({ gfm: true, breaks: false });
   marked.use({ extensions: mathExtensions(render) });
-  const picture = PICTURE_LINE.exec(markdown);
-  if (picture) {
-    const text = markdown.replace(PICTURE_LINE, "").trim();
-    const body = await marked.parse(text);
+  // The picture is a paragraph of its own holding only ![…]({{image}}),
+  // found among the parsed blocks, so an example in a code block stays code.
+  const tokens = marked.lexer(markdown);
+  const at = tokens.findIndex(
+    (token) =>
+      token.type === "paragraph" &&
+      token.tokens?.length === 1 &&
+      token.tokens[0]?.type === "image" &&
+      token.tokens[0].href.trim() === SLIDE_IMAGE_MARK,
+  );
+  if (at >= 0) {
+    const [paragraph] = tokens.splice(at, 1);
+    const alt = paragraph?.tokens?.[0]?.text ?? "";
+    const body = marked.parser(tokens);
+    const text = markdown.replace(paragraph?.raw ?? "", "");
     const size = Math.round(markdownFontSize(text) * SPLIT_FONT_SCALE);
     return `<style>${STYLE}</style>
 <div class="${BOX} ${SPLIT}" data-fit style="font-size: ${size}px">
 <div class="${TEXT}">
 ${body}</div>
-<img class="${PICTURE}" src="{{image}}" alt="${escapeHtml(picture[1] ?? "")}">
+<img class="${PICTURE}" src="${SLIDE_IMAGE_MARK}" alt="${escapeHtml(alt)}">
 </div>`;
   }
   const body = await marked.parse(markdown);
