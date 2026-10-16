@@ -483,16 +483,22 @@ test("a Markdown slide with ![…]({{image}}) on a line of its own is two column
   );
 });
 
-test("{{image}} without an imagePrompt is refused; an imagePrompt without {{image}} is left out", async () => {
+test("{{image}} without an imagePrompt is drawn from the title; an imagePrompt without {{image}} is left out", async () => {
   const host = fakeHost();
-  const refused = await presentSlide(host.context(), {
+  const name = title("No prompt");
+  const untold = await presentSlide(host.context(), {
     slide: 1,
     totalSlides: 63,
-    title: title("No prompt"),
+    title: name,
     html: `<img src="{{image}}">`,
   });
-  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
-  assert.equal(refused.sequence, null);
+  assert.ok(data(untold).imageData, untold.message);
+  assert.equal(untold.sequence?.step, 1, "the slideshow goes on");
+  assert.match(
+    String(host.calls[0]?.prompt),
+    new RegExp(`titled "${name}"\\. ${name} `),
+  );
+  host.calls.length = 0;
   const plain = await presentSlide(host.context(), {
     ...htmlSlide(1, 63, title("No mark")),
     imagePrompt: "a picture with nowhere to go",
@@ -655,14 +661,31 @@ test("a picture marked reads (brackets in its text, a reference) is placed; {{im
     );
   }
   assert.equal(host.calls.length, 2);
-  const refused = await presentSlide(host.context(), {
+  // As a model wrote it in MulmoChat: the description in the alt text, no
+  // imagePrompt. The alt text is drawn, and saved as what the picture shows.
+  const described = await presentSlide(host.context(), {
     slide: 1,
     totalSlides: 70,
     title: title("Markdown without prompt"),
-    markdown: "# Cells\n\n![a cell]({{image}})",
+    markdown:
+      "# ウニ（雲丹）の basics\n\n- ウニは**棘皮動物**の仲間\n\n![A purple sea urchin with long spines resting on a rock in shallow blue water]({{image}})",
   });
-  assert.match(refused.message, /has \{\{image\}\} but no imagePrompt/);
-  assert.equal(refused.sequence, null);
+  assert.ok(data(described).imageData, described.message);
+  assert.equal(described.sequence?.step, 1);
+  assert.match(
+    String(host.calls[2]?.prompt),
+    /\. A purple sea urchin with long spines resting on a rock in shallow blue water Keep the subject in the middle/,
+  );
+  const saved = record(
+    host.artifacts,
+    `slideshows/${String(data(described).slideshowId)}.json`,
+  ) as {
+    slides: Record<string, { imagePrompt: string }>;
+  };
+  assert.equal(
+    saved.slides["1"]?.imagePrompt,
+    "A purple sea urchin with long spines resting on a rock in shallow blue water",
+  );
 });
 
 test('an HTML code example of <img src="{{image}}"> is not a place for a picture', async () => {

@@ -19,7 +19,6 @@
 import type { SequenceStep, ToolResult } from "gui-chat-protocol";
 import {
   parseSlideArgs,
-  SLIDE_IMAGE_WITHOUT_PROMPT,
   slideShownInstructions,
   type SlideArgs,
   type SlideData,
@@ -39,7 +38,7 @@ import {
 } from "./host";
 import type { SlideChart } from "./chartSlide";
 import { markdownSlideHtml } from "./markdownSlide";
-import { hasSlideImageMark } from "./slideHtml";
+import { hasSlideImageMark, slideImageAlt } from "./slideHtml";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
 
@@ -199,6 +198,9 @@ interface SlideContent {
   /** Why an HTML or Markdown slide's picture couldn't be drawn: the slide is
    *  shown without it. */
   pictureFailed?: string;
+  /** What an HTML or Markdown slide's picture shows, as saved: imagePrompt,
+   *  else the picture's alt text, else the title. */
+  imagePrompt?: string;
 }
 
 const STEP_REFERENCE =
@@ -254,20 +256,28 @@ async function slideContent(
     // Markdown, the HTML marked made of it, so a picture marked reads (a
     // titled or reference-style one) counts, and an example in code doesn't.
     const placed = hasSlideImageMark(page.html);
-    if (placed && !slide.imagePrompt) {
-      return {
-        failed: { message: SLIDE_IMAGE_WITHOUT_PROMPT, sequence: null },
-      };
-    }
     if (!placed) return { ...page, prompt: "" };
+    // Models describe the picture in its alt text and leave out imagePrompt
+    // (seen in MulmoChat): that description, else the title, is drawn.
+    const imagePrompt =
+      slide.imagePrompt || slideImageAlt(page.html) || slide.title;
+    const described = { ...slide, imagePrompt };
     // A guide step's picture is drawn from the step before's, as a picture
     // step's is, so the objects and the setting stay the same.
-    const references = await stepReferences(context, show, slide);
-    const prompt = placedPicturePrompt(slide, references.length > 0);
+    const references = await stepReferences(context, show, described);
+    const prompt = placedPicturePrompt(described, references.length > 0);
     const image = await drawPicture(context, prompt, references);
     const { imageData, imagePath } = imageOf(image);
-    if (!imageData) return { ...page, prompt, pictureFailed: image.message };
-    return { ...page, imageData, ...(imagePath && { imagePath }), prompt };
+    if (!imageData) {
+      return { ...page, prompt, imagePrompt, pictureFailed: image.message };
+    }
+    return {
+      ...page,
+      imageData,
+      ...(imagePath && { imagePath }),
+      prompt,
+      imagePrompt,
+    };
   }
   const references = await stepReferences(context, show, slide);
   const prompt = slidePrompt(slide, references.length > 0);
@@ -306,7 +316,7 @@ async function makeSlide(
       slideshow.slides[String(slide.slide)] = {
         title: slide.title,
         // A Markdown slide's imagePrompt with no place for it is left out.
-        imagePrompt: html && !prompt ? "" : slide.imagePrompt,
+        imagePrompt: html ? (content.imagePrompt ?? "") : slide.imagePrompt,
         ...(imagePath && { imagePath }),
         ...(html && { html }),
         ...(markdown && { markdown }),
