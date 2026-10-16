@@ -113,7 +113,9 @@ export function parseSlideArgs(
   const picture = !html && !markdown && !chart;
   // An HTML or Markdown slide with a place for a picture ({{image}}) has one;
   // without the place, an imagePrompt sent with it is left out, as before.
-  const placed = hasSlideImageMark(html || markdown);
+  const placed = html
+    ? hasSlideImageMark(html, "html")
+    : !!markdown && hasSlideImageMark(markdown, "markdown");
   if (placed && !text(imagePrompt)) return SLIDE_IMAGE_WITHOUT_PROMPT;
   return {
     slide,

@@ -589,17 +589,33 @@ test("an example in a code block is code: no picture column, and its {{image}} s
     /<img class="slide-md-picture" src="data:image\/png;base64,1" alt="the result">/,
   );
 
-  const onlyCode = await presentSlide(host.context(), {
+  // Only in code, or only as text: not a place for a picture, so no
+  // imagePrompt is needed and none is drawn.
+  const calls = host.calls.length;
+  for (const markdown of [
+    "# Syntax\n\n```md\n![a cell]({{image}})\n```",
+    "# Syntax\n\nWrite `![a cell]({{image}})` for a picture.",
+  ]) {
+    const onlyCode = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 68,
+      title: title("Only code"),
+      markdown,
+    });
+    assert.ok(data(onlyCode).html, onlyCode.message);
+    assert.doesNotMatch(
+      String(data(onlyCode).html),
+      /class="slide-md slide-md-split"/,
+    );
+  }
+  const htmlText = await presentSlide(host.context(), {
     slide: 1,
     totalSlides: 68,
-    title: title("Only code"),
-    markdown: "# Syntax\n\n```md\n![a cell]({{image}})\n```",
-    imagePrompt: "a cell",
+    title: title("Mark as text"),
+    html: "<p>Write <code>{{image}}</code> where the picture goes.</p>",
   });
-  assert.doesNotMatch(
-    String(data(onlyCode).html),
-    /class="slide-md slide-md-split"/,
-  );
+  assert.ok(data(htmlText).html, htmlText.message);
+  assert.equal(host.calls.length, calls);
 });
 
 test("withSlideImage puts in only a data: URL of an image", () => {

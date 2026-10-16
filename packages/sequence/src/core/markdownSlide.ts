@@ -183,7 +183,9 @@ export async function markdownSlideHtml(markdown: string): Promise<string> {
   );
   if (at >= 0) {
     const [paragraph] = tokens.splice(at, 1);
-    const alt = paragraph?.tokens?.[0]?.text ?? "";
+    const picture =
+      paragraph?.type === "paragraph" ? paragraph.tokens?.[0] : undefined;
+    const alt = picture?.type === "image" ? picture.text : "";
     const body = marked.parser(tokens);
     const text = markdown.replace(paragraph?.raw ?? "", "");
     const size = Math.round(markdownFontSize(text) * SPLIT_FONT_SCALE);

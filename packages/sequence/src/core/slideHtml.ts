@@ -290,7 +290,6 @@ ${SLIDE_CSS_ANIMATIONS_FINISHED}`;
 // so a record doesn't carry the picture twice. Marked writes the Markdown
 // form's braces percent-encoded.
 export const SLIDE_IMAGE_MARK = "{{image}}";
-const IMAGE_MARK = /\{\{image\}\}|%7B%7Bimage%7D%7D/gi;
 // Only where a picture can be: an src attribute or a CSS url(), so a code
 // example that shows {{image}} keeps it as text.
 const IMAGE_PLACE =
@@ -301,9 +300,21 @@ const DATA_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
 const NO_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-/** Whether an HTML or Markdown slide has a place for a picture. */
-export const hasSlideImageMark = (text: string): boolean =>
-  new RegExp(IMAGE_MARK.source, "i").test(text);
+// Markdown's picture, outside code: fenced and indented blocks and inline
+// code spans are taken out first, so an example of the syntax isn't one.
+const MARKDOWN_PICTURE = /!\[[^\]\n]*\]\(\s*\{\{image\}\}\s*\)/i;
+const MARKDOWN_CODE =
+  /^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$|^(?: {4}|\t).*$|`[^`\n]*`/gm;
+
+/** Whether an HTML slide (an src or a CSS url() of {{image}}) or a Markdown
+ *  slide (![…]({{image}}) outside code) has a place for a picture. */
+export const hasSlideImageMark = (
+  text: string,
+  kind: "html" | "markdown",
+): boolean =>
+  kind === "html"
+    ? new RegExp(IMAGE_PLACE.source, "i").test(text)
+    : MARKDOWN_PICTURE.test(text.replace(MARKDOWN_CODE, ""));
 
 /** The slide's HTML with its picture in place of {{image}}: imageData when it
  *  is a data: URL of an image, else a transparent pixel. */
