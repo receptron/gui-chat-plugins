@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- **`{{image}}` alone on its line is a Markdown slide's picture too.** In MulmoChat, models wrote the
+  mark by itself rather than as `![…]({{image}})`: it was shown as text and no picture was drawn.
+  A paragraph of just `{{image}}` is now the picture, laid out like `![…]({{image}})` (text left,
+  picture right). The Markdown description asks for the picture on a line of its own.
+
 ## 0.6.0
 
 - **An HTML or Markdown slide can hold a generated picture.** Give `imagePrompt` with `html` or

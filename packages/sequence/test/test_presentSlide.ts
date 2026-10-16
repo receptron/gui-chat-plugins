@@ -677,6 +677,35 @@ test('an HTML code example of <img src="{{image}}"> is not a place for a picture
   assert.equal(host.calls.length, 0);
 });
 
+test("{{image}} alone on its line is the picture too, as models write it (two slides from MulmoChat)", async () => {
+  const host = fakeHost();
+  for (const markdown of [
+    "# シャコ（蝦虎）\n\n- 見た目はエビやカニに似ている\n- でも**甲殻類**の仲間\n- 特徴は、折りたたんだ大きな前脚（大顎）\n\n{{image}}\n\n寿司屋で「シャコ」と呼ばれるのは、この生き物の食用部分のこと。",
+    "# なぜ「シャコ」なのか\n\n- **シャコ** ＝ 漢字で「蝦虎」\n- 「蝦（えび）」＋「虎（とら）」\n- エビに似ていて、攻撃的\n\n- 英語では **mantis shrimp**\n  - mantis ＝ カマキリ\n  - 前脚の形がカマキリそっくり\n\n{{image}}\n\n検定では英語名を「punching shrimp」と答えていたので、そこが今回の一番の収穫ポイントです。",
+  ]) {
+    const result = await presentSlide(host.context(), {
+      slide: 1,
+      totalSlides: 72,
+      title: title("Bare mark"),
+      markdown,
+      imagePrompt: "a mantis shrimp",
+    });
+    const html = String(data(result).html);
+    assert.ok(data(result).imageData, result.message);
+    assert.match(html, /class="slide-md slide-md-split"/);
+    assert.doesNotMatch(
+      html,
+      /<p>\{\{image\}\}<\/p>/,
+      "the mark isn't left as text",
+    );
+    assert.match(
+      withSlideImage(html, String(data(result).imageData)),
+      /<img class="slide-md-picture" src="data:image\/png;base64,\d+" alt="">/,
+    );
+  }
+  assert.equal(host.calls.length, 2);
+});
+
 test("withSlideImage leaves code alone: an example of url({{image}}) stays as written", () => {
   const html =
     '<pre><code>background: url({{image}});\n&lt;img src="{{image}}"&gt;</code></pre><p>Use <code>src="{{image}}"</code>.</p><img src="{{image}}">';

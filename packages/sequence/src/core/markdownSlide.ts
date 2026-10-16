@@ -174,13 +174,16 @@ export async function markdownSlideHtml(markdown: string): Promise<string> {
   // The picture is a paragraph of its own holding only ![…]({{image}}),
   // found among the parsed blocks, so an example in a code block stays code.
   const tokens = marked.lexer(markdown);
-  const at = tokens.findIndex(
-    (token) =>
-      token.type === "paragraph" &&
-      token.tokens?.length === 1 &&
-      token.tokens[0]?.type === "image" &&
-      token.tokens[0].href.trim() === SLIDE_IMAGE_MARK,
-  );
+  // A paragraph of just {{image}} is one too: models write the mark alone on
+  // its line as often as in ![…]({{image}}) (seen in MulmoChat, where the
+  // bare mark was shown as text and no picture drawn).
+  const at = tokens.findIndex((token) => {
+    if (token.type !== "paragraph" || token.tokens?.length !== 1) return false;
+    const only = token.tokens[0];
+    return only?.type === "image"
+      ? only.href.trim() === SLIDE_IMAGE_MARK
+      : only?.type === "text" && only.text.trim() === SLIDE_IMAGE_MARK;
+  });
   if (at >= 0) {
     const [paragraph] = tokens.splice(at, 1);
     const picture =
