@@ -17,6 +17,7 @@ import {
 } from "../src/core/definitions";
 import { chartSlideDocument } from "../src/core/chartSlide";
 import {
+  escapeTextSpecials,
   markdownFontSize,
   spaceFunctionNames,
 } from "../src/core/markdownSlide";
@@ -984,6 +985,39 @@ test("TeX that KaTeX can't read is shown as written", async () => {
   );
   const page = String(data(result).html);
   assert.match(page, /<code class="math-error">\\frac\{1\}\{&lt;x<\/code>/);
+});
+
+test("& % # in \\text{} are escaped for KaTeX, and only there", async () => {
+  // As a model wrote it in MulmoChat: the whole block was shown as TeX.
+  const align = [
+    "$$",
+    "\\begin{align}",
+    "\\text{EBIT} &\\to \\text{Taxes} \\\\",
+    "\\text{NOPAT} &\\to \\text{+ D&A} - \\text{CapEx} - \\Delta\\text{NWC}",
+    "\\end{align}",
+    "$$",
+  ].join("\n");
+  const host = fakeHost();
+  const result = await presentSlide(
+    host.context(),
+    markdownSlide(
+      1,
+      34,
+      title("FCFF"),
+      `${align}\n\nMargin: $\\text{50% of {R&D}, #1}$ and $\\text{P\\&L}$`,
+    ),
+  );
+  const page = String(data(result).html);
+  assert.doesNotMatch(page, /class="math-error"/);
+  // KaTeX's spaces in text are U+00A0.
+  assert.match(page, /<mtext>\+\sD&amp;A<\/mtext>/);
+  assert.match(page, /<mtext>50%\sof\sR&amp;D,\s#1<\/mtext>/);
+  assert.match(page, /<mtext>P&amp;L<\/mtext>/);
+  // The alignment tabs outside \text are left alone.
+  assert.equal(
+    escapeTextSpecials("a &= \\text{x & y} \\\\ b &= \\textbf{\\&}"),
+    "a &= \\text{x \\& y} \\\\ b &= \\textbf{\\&}",
+  );
 });
 
 test("a function name gets TeX's thin spaces, which Chrome's MathML doesn't add", async () => {
