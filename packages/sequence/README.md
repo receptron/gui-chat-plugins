@@ -25,14 +25,14 @@ The core entry (`@gui-chat-plugin/sequence`) has the same tools without Views, f
 
 ### What `execute()` needs from its context
 
-|                                      | Used for                                                                                       | Without it                                                                          |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `app.generateImage(prompt)`          | every picture                                                                                  | "image generation isn't available"                                                  |
-| `app.editImages(prompt, imagePaths)` | a panel drawn from its characters' sheets, a guide step drawn from the step before             | drawn from the prompt alone                                                         |
-| `files.artifacts` (`FileOps`)        | the records, and checking that a reference picture is still there                              | records are kept in memory only (the results say they weren't saved); no references |
-| `userSpokeAt`                        | holding a guide's next step, or a story's next panel after a choice, until the user has spoken | nothing is held                                                                     |
-| `conversationId`                     | keeping each conversation's slideshows, holds and repeats apart                                | one conversation                                                                    |
-| `currentResult`                      | telling "show step 2 again" (it isn't on the screen) from a repeated call (it is)              | a step asked for again is shown again                                               |
+|                                      | Used for                                                                                         | Without it                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `app.generateImage(prompt)`          | every picture                                                                                    | "image generation isn't available"                                                                                                 |
+| `app.editImages(prompt, imagePaths)` | a panel drawn from its characters' sheets, a guide step drawn from the step before               | drawn from the prompt alone                                                                                                        |
+| `files.artifacts` (`FileOps`)        | the records, saving a picture from the web, and checking that a reference picture is still there | records are kept in memory only (the results say they weren't saved); a picture from the web is shown but not saved; no references |
+| `userSpokeAt`                        | holding a guide's next step, or a story's next panel after a choice, until the user has spoken   | nothing is held                                                                                                                    |
+| `conversationId`                     | keeping each conversation's slideshows, holds and repeats apart                                  | one conversation                                                                                                                   |
+| `currentResult`                      | telling "show step 2 again" (it isn't on the screen) from a repeated call (it is)                | a step asked for again is shown again                                                                                              |
 
 `generateImage` and `editImages` are gui-chat-protocol's `context.app` conventions: they save each
 picture as `artifacts/images/…` and return its path in `data.imagePath`. `currentResult` is compared
@@ -67,8 +67,8 @@ it is drawn.
 
 ## Slides that aren't pictures
 
-A slide is a generated picture (`imagePrompt`), a chart (`chart`), Markdown (`markdown`) or HTML
-(`html`), the model's choice per slide: a picture for a scene or an object; a chart for numbers to
+A slide is a generated picture (`imagePrompt`), a picture from the web (`imageUrl`, below), a chart
+(`chart`), Markdown (`markdown`) or HTML (`html`), the model's choice per slide: a picture for a scene or an object; a chart for numbers to
 compare, a trend or proportions; Markdown for equations (TeX math), definitions, short lists and
 small tables; HTML for designed layouts, comparisons, timelines and diagrams. Picture models draw
 words, numbers and math badly. A slide sent with more than one is one kind: `html` first, then
@@ -88,6 +88,29 @@ slide's height (`object-fit: cover`, so the picture is asked to keep its subject
 Without `{{image}}`, an `imagePrompt` sent with `html` or `markdown` is left out; `{{image}}`
 without `imagePrompt` is drawn from the picture's alt text, or the slide's title when it has none. When the picture can't be drawn, the slide is shown without it
 and the model is told.
+
+### A picture from the web
+
+`imageUrl` is the address of an image file the model found (in a search, or from the user), shown
+instead of a generated picture: on a picture slide, or at an HTML or Markdown slide's `{{image}}`
+in place of the one `imagePrompt` would draw. `execute()` fetches it and returns it as a `data:`
+URL (`imageData`), so the slides' policy (`img-src data: blob:`) is unchanged and a slide still
+can't send anything out in an image URL. It is saved as the hosts save their own pictures,
+`artifacts/images/<YYYY>/<MM>/<id>.<ext>` (`imagePath`), so a movie of the slideshow, or the next
+step of a guide drawn from it, can use it; the result and the record keep the address in
+`imageUrl`.
+
+Since MulmoChat fetches it on its server, from an address the model chose: only `https`, no IP
+addresses and no local names (`localhost`, `*.local`, a name without a dot…), every redirect (at
+most 3) checked the same way, 10 seconds and 5 MB at most, and only bytes that are a PNG, JPEG, GIF
+or WebP picture, whatever the server says its type is. A public name that resolves to a private
+address isn't caught: that needs a DNS lookup, which a page can't make; what comes back is shown
+only if it is a picture. MulmoGlass fetches it in the page, where a site that doesn't allow CORS
+can't be read.
+
+A picture that can't be fetched is drawn instead, from `imagePrompt` (an HTML or Markdown slide's
+from its alt text or title, as without `imageUrl`), and the model is told; a picture slide with no
+`imagePrompt` isn't shown, and the model is told why, so it can give another address.
 
 ### Markdown slides
 
@@ -150,7 +173,7 @@ that an HTML step is on the screen; a guide step asked for again is then shown a
 
 Saved through `files.artifacts`, with their pictures' paths:
 
-- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath } } }`; a slide that isn't a picture has `html` (an HTML slide), `html` and `markdown` (a Markdown slide) or `chart` (a chart slide), and an `imagePrompt` of `""` and no `imagePath` unless its `html` places a picture at `{{image}}`
+- `slideshows/<id>.json`: `{ id, title, mode, totalSlides, slides: { "1": { title, imagePrompt, imagePath, imageUrl } } }` (`imageUrl` for a picture from the web); a slide that isn't a picture has `html` (an HTML slide), `html` and `markdown` (a Markdown slide) or `chart` (a chart slide), and an `imagePrompt` of `""` and no `imagePath` unless its `html` places a picture at `{{image}}`
 - `storyboards/<id>.json`: `{ id, title, style, totalPanels, interactive, characters: [{ name, description, imagePath }], panels: { "1": { caption, characters, imagePrompt, imagePath, choices } } }`
 
 IDs are 12 hex digits. The results name them, so a later tool call can refer to a slideshow or a

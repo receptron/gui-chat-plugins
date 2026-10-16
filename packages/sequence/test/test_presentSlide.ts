@@ -770,7 +770,10 @@ test("a slide with neither an imagePrompt nor html, or too much html, ends the s
     title: title("Empty"),
     html: "  ",
   });
-  assert.match(neither.message, /one of imagePrompt, html, markdown or chart/);
+  assert.match(
+    neither.message,
+    /one of imagePrompt, imageUrl, html, markdown or chart/,
+  );
   assert.equal(neither.sequence, null);
 
   const long = await presentSlide(host.context(), {
