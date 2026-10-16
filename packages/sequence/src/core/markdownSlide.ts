@@ -149,6 +149,35 @@ export const spaceFunctionNames = (mathml: string): string =>
       `${before ? before + THIN_SPACE : ""}${name}<mo lspace="0" rspace="0.1667em">\u2061</mo>`,
   );
 
+const TEXT_COMMAND = /\\(?:text(?:bf|it|rm|sf|tt|normal)?|mbox)\s*\{/g;
+
+// Models write "\text{D&A}" or "\text{50% margin}": & % # are TeX's
+// specials in text too, so KaTeX refuses the equation (seen in MulmoChat,
+// where an Office slide's whole align block was shown as TeX), or reads
+// the rest after % as a comment. Each one not already escaped, inside a
+// text command's braces, gets its backslash: unescaped there, none of them
+// is ever what the model meant.
+export const escapeTextSpecials = (tex: string): string => {
+  let out = "";
+  let from = 0;
+  for (const command of tex.matchAll(TEXT_COMMAND)) {
+    const open = command.index + command[0].length;
+    if (open <= from) continue;
+    let depth = 1;
+    let end = open;
+    for (; end < tex.length && depth > 0; end++) {
+      if (tex[end] === "\\") end++;
+      else if (tex[end] === "{") depth++;
+      else if (tex[end] === "}") depth--;
+    }
+    out +=
+      tex.slice(from, open) +
+      tex.slice(open, end).replace(/(?<!\\)((?:\\\\)*)([&%#])/g, "$1\\$2");
+    from = end;
+  }
+  return out + tex.slice(from);
+};
+
 /** A Markdown slide's HTML: the body of an HTML slide. */
 export async function markdownSlideHtml(markdown: string): Promise<string> {
   const [{ Marked }, { default: katex }] = await Promise.all([
@@ -158,7 +187,7 @@ export async function markdownSlideHtml(markdown: string): Promise<string> {
   const render: RenderMath = (tex, display) => {
     try {
       return spaceFunctionNames(
-        katex.renderToString(tex, {
+        katex.renderToString(escapeTextSpecials(tex), {
           output: "mathml",
           displayMode: display,
           throwOnError: true,

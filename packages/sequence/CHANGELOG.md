@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3
+
+- **`& % #` inside `\text{}` are escaped before KaTeX reads the math.** In MulmoChat, a model wrote
+  `\text{+ D&A}` in an `align` block; KaTeX refused it, and the whole equation was shown as TeX.
+  Unescaped there, none of the three is what the model meant (`&` is a column, `%` a comment), so
+  each gets its backslash. The Markdown description asks for `\& \% \#` inside `\text{}` too.
+
 ## 0.6.2
 
 - **A picture without `imagePrompt` is drawn from its alt text.** In MulmoChat, a model described
