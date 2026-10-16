@@ -529,6 +529,33 @@ test("a slide whose picture couldn't be drawn is shown without it, and the model
   );
 });
 
+test("a guide step's placed picture is drawn from the step before's picture", async () => {
+  const host = fakeHost();
+  const name = title("Origami crane");
+  const step1 = await presentSlide(
+    host.context({ userSpokeAt: Date.now() - 1000 }),
+    slideArgs(1, 66, name, { mode: "steps" }),
+  );
+  const step2 = await presentSlide(
+    host.context({ userSpokeAt: Date.now() + 1, currentResult: step1 }),
+    {
+      slide: 2,
+      totalSlides: 66,
+      title: `${name}: part 2`,
+      mode: "steps",
+      markdown:
+        "# Fold in half\n\n![the folded paper]({{image}})\n\n- Corner to corner",
+      imagePrompt: "the square folded into a triangle",
+    },
+  );
+  assert.equal(data(step2).slide, 2);
+  assert.deepEqual(host.calls[1]?.references, [data(step1).imagePath]);
+  assert.match(
+    String(host.calls[1]?.prompt),
+    /^An instructional illustration for step 2 of 66, "Origami crane \d+: part 2"\. the square folded into a triangle The reference image is the previous step/,
+  );
+});
+
 test("withSlideImage puts in only a data: URL of an image", () => {
   const html = `<img src="{{image}}"><div style="background:url({{image}})"></div>`;
   assert.equal(

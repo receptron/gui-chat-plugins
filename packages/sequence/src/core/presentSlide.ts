@@ -180,9 +180,7 @@ function slidePrompt(slide: SlideArgs, hasReference: boolean): string {
   const titled = slide.title ? `, "${slide.title}"` : "";
   return [
     `An instructional illustration of step ${slide.slide} of ${slide.totalSlides}${titled}. ${slide.imagePrompt}`,
-    hasReference
-      ? "The reference image is the previous step: keep the same objects, hands, tools and setting, and show what this step changes."
-      : "",
+    hasReference ? STEP_REFERENCE : "",
     "Show the action clearly, with little or no text.",
   ]
     .filter(Boolean)
@@ -201,11 +199,29 @@ interface SlideContent {
   pictureFailed?: string;
 }
 
+const STEP_REFERENCE =
+  "The reference image is the previous step: keep the same objects, hands, tools and setting, and show what this step changes.";
+
+/** A guide step's reference: the step before's saved picture, when it has
+ *  one the host can use. */
+async function stepReferences(
+  context: SequenceContext,
+  show: ShownSlideshow,
+  slide: SlideArgs,
+): Promise<string[]> {
+  if (slide.mode !== "steps") return [];
+  const previousPath = imageOf(show.slides.get(slide.slide - 1)).imagePath;
+  return previousPath ? await usableReferences(context, [previousPath]) : [];
+}
+
 /** The picture an HTML or Markdown slide places at {{image}}: no title in
  *  it, since the slide has its own, and no text. */
-const placedPicturePrompt = (slide: SlideArgs) =>
+const placedPicturePrompt = (slide: SlideArgs, hasReference: boolean) =>
   [
-    `A picture for a presentation slide${slide.title ? ` titled "${slide.title}"` : ""}. ${slide.imagePrompt}`,
+    slide.mode === "steps"
+      ? `An instructional illustration for step ${slide.slide} of ${slide.totalSlides}${slide.title ? `, "${slide.title}"` : ""}. ${slide.imagePrompt}`
+      : `A picture for a presentation slide${slide.title ? ` titled "${slide.title}"` : ""}. ${slide.imagePrompt}`,
+    hasReference ? STEP_REFERENCE : "",
     // A Markdown slide's picture fills a tall right-hand column (object-fit:
     // cover), which crops a wide picture's sides.
     slide.markdown
@@ -234,18 +250,16 @@ async function slideContent(
         };
     // parseSlideArgs keeps an imagePrompt only for a slide with {{image}}.
     if (!slide.imagePrompt) return { ...page, prompt: "" };
-    const prompt = placedPicturePrompt(slide);
-    const image = await drawPicture(context, prompt);
+    // A guide step's picture is drawn from the step before's, as a picture
+    // step's is, so the objects and the setting stay the same.
+    const references = await stepReferences(context, show, slide);
+    const prompt = placedPicturePrompt(slide, references.length > 0);
+    const image = await drawPicture(context, prompt, references);
     const { imageData, imagePath } = imageOf(image);
     if (!imageData) return { ...page, prompt, pictureFailed: image.message };
     return { ...page, imageData, ...(imagePath && { imagePath }), prompt };
   }
-  const previous = show.slides.get(slide.slide - 1);
-  const previousPath =
-    slide.mode === "steps" ? imageOf(previous).imagePath : undefined;
-  const references = previousPath
-    ? await usableReferences(context, [previousPath])
-    : [];
+  const references = await stepReferences(context, show, slide);
   const prompt = slidePrompt(slide, references.length > 0);
   const image = await drawPicture(context, prompt, references);
   const { imageData, imagePath } = imageOf(image);
