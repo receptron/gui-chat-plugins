@@ -254,3 +254,40 @@ test("a picture over the size limit isn't read", async () => {
     assert.ok("error" in result && /larger than 5 MB/.test(result.error), url);
   }
 });
+
+test("a response that isn't read is cancelled", async () => {
+  let cancelled = 0;
+  const body = () =>
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled++;
+      },
+    });
+  web.set(
+    "https://example.com/moved",
+    () =>
+      new Response(body(), {
+        status: 302,
+        headers: { location: "/missing.png" },
+      }),
+  );
+  web.set(
+    "https://example.com/missing.png",
+    () => new Response(body(), { status: 404 }),
+  );
+  web.set(
+    "https://example.com/declared.png",
+    () =>
+      new Response(body(), {
+        headers: { "content-length": String(MAX_WEB_IMAGE_BYTES + 1) },
+      }),
+  );
+
+  await fetchWebImage("https://example.com/moved", undefined);
+  assert.equal(cancelled, 2);
+  await fetchWebImage("https://example.com/declared.png", undefined);
+  assert.equal(cancelled, 3);
+});

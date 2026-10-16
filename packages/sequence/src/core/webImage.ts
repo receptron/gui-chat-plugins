@@ -78,10 +78,18 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** A response not read: its body is cancelled, so on a server the
+ *  connection goes back to the pool rather than waiting for the timeout. */
+const discard = (response: Response): Promise<void> =>
+  response.body?.cancel().catch(() => undefined) ?? Promise.resolve();
+
 /** The body, or null past the size limit (read no further). */
 async function readLimited(response: Response): Promise<Uint8Array | null> {
   const declared = Number(response.headers.get("content-length"));
-  if (declared > MAX_WEB_IMAGE_BYTES) return null;
+  if (declared > MAX_WEB_IMAGE_BYTES) {
+    await discard(response);
+    return null;
+  }
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     return bytes.length > MAX_WEB_IMAGE_BYTES ? null : bytes;
@@ -142,6 +150,7 @@ async function fetchChecked(
     if (response.status < 300 || response.status >= 400 || !location) {
       return response;
     }
+    await discard(response);
     if (hops >= MAX_REDIRECTS) return "it redirects too many times";
     url = new URL(location, url);
   }
@@ -160,7 +169,10 @@ export async function fetchWebImage(
       AbortSignal.timeout(WEB_IMAGE_TIMEOUT_MS),
     );
     if (typeof response === "string") return { error: response };
-    if (!response.ok) return { error: `the site answered ${response.status}` };
+    if (!response.ok) {
+      await discard(response);
+      return { error: `the site answered ${response.status}` };
+    }
     bytes = await readLimited(response);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
