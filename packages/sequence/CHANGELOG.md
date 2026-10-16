@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1
+
+- **A web page's address shows the page's preview picture.** In MulmoChat, the model had only
+  pages' addresses from its searches and browsing (neither returns image files'), and gave one as
+  `imageUrl`. A page's `og:image` (else `twitter:image`) is now fetched in its place, under the
+  same checks; one that is a page in turn isn't followed. Tried on Car and Driver's and Wired's
+  articles about the Tesla Roadster: each slide showed the article's photo.
+- **An `imageUrl` that isn't used is said so.** The same model put the address on an HTML slide
+  without `{{image}}`; it was left out without a word. The result now says the picture isn't
+  shown and why, and the tool's description says the slide must have `{{image}}`.
+
 ## 0.7.0
 
 - **A slide's picture can come from the web (`imageUrl`).** The slides' policy lets an image come

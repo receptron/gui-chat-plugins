@@ -7,7 +7,9 @@
 // server, which then fetches a URL the model chose, and the model may have
 // read a page written to steer it: only https, no IP addresses, no local
 // names, every redirect checked the same way, a timeout and a size limit,
-// and only bytes that are a PNG, JPEG, GIF or WebP picture. A public name
+// and only bytes that are a PNG, JPEG, GIF or WebP picture. A web page's
+// address (models have pages, from searches, more often than image files)
+// gives its preview picture (og:image), fetched the same way. A public name
 // that resolves to a private address isn't caught (that needs DNS, which a
 // page can't do); what comes back from it is shown only if it is a picture.
 // MulmoChat's server runs on the user's machine, so it reaches what their
@@ -118,12 +120,68 @@ async function readLimited(response: Response): Promise<Uint8Array | null> {
   return bytes;
 }
 
+// A page's preview picture, in the order a page names it.
+const PREVIEW_PROPERTIES = [
+  "og:image:secure_url",
+  "og:image:url",
+  "og:image",
+  "twitter:image",
+  "twitter:image:src",
+];
+
+const ATTRIBUTE = /([a-z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
+
+const decodeEntities = (value: string) =>
+  value
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+      String.fromCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, decimal: string) =>
+      String.fromCodePoint(Number(decimal)),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
+/** The address of a page's preview picture (og:image, twitter:image), from
+ *  its <meta> tags, or null. Read as text: no DOM where execute() runs on a
+ *  server. */
+export function pagePreviewImage(html: string, pageUrl: string): string | null {
+  const found = new Map<string, string>();
+  for (const [tag] of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = new Map<string, string>();
+    for (const [, name, double, single, bare] of tag.matchAll(ATTRIBUTE)) {
+      if (name)
+        attributes.set(name.toLowerCase(), double ?? single ?? bare ?? "");
+    }
+    const key = (
+      attributes.get("property") ??
+      attributes.get("name") ??
+      ""
+    ).toLowerCase();
+    const content = decodeEntities(attributes.get("content") ?? "").trim();
+    if (content && !found.has(key)) found.set(key, content);
+  }
+  for (const property of PREVIEW_PROPERTIES) {
+    const content = found.get(property);
+    if (!content) continue;
+    try {
+      return new URL(content, pageUrl).href;
+    } catch {
+      // Not an address: the next one.
+    }
+  }
+  return null;
+}
+
 /** The response at `address`, following redirects only to URLs that may be
- *  fetched too. */
+ *  fetched too, and the URL it came from. */
 async function fetchChecked(
   address: string,
   signal: AbortSignal,
-): Promise<Response | string> {
+): Promise<{ response: Response; url: string } | string> {
   let url: URL;
   try {
     url = new URL(address);
@@ -142,15 +200,16 @@ async function fetchChecked(
     // A browser doesn't show a redirect's target (an opaque redirect): it
     // follows it itself. There, the page fetches what an <img> would.
     if (response.type === "opaqueredirect") {
-      return fetch(url, {
+      const followed = await fetch(url, {
         signal,
         credentials: "omit",
         referrerPolicy: "no-referrer",
       });
+      return { response: followed, url: followed.url || url.href };
     }
     const location = response.headers.get("location");
     if (response.status < 300 || response.status >= 400 || !location) {
-      return response;
+      return { response, url: url.href };
     }
     await discard(response);
     if (hops >= MAX_REDIRECTS) return "it redirects too many times";
@@ -159,18 +218,26 @@ async function fetchChecked(
 }
 
 /** A picture from the web, saved under artifacts/images/ when the host has
- *  files, or why it couldn't be fetched. */
+ *  files, or why it couldn't be fetched. A page's address gives its preview
+ *  picture, whose address is `source`; a page's preview that is a page
+ *  isn't followed. */
 export async function fetchWebImage(
   address: string,
   artifacts: FileOps | undefined,
-): Promise<{ imageData: string; imagePath?: string } | { error: string }> {
+  fromPage = false,
+): Promise<
+  { imageData: string; imagePath?: string; source?: string } | { error: string }
+> {
   let bytes: Uint8Array | null;
+  let fetchedFrom: string;
   try {
-    const response = await fetchChecked(
+    const fetched = await fetchChecked(
       address,
       AbortSignal.timeout(WEB_IMAGE_TIMEOUT_MS),
     );
-    if (typeof response === "string") return { error: response };
+    if (typeof fetched === "string") return { error: fetched };
+    const { response } = fetched;
+    fetchedFrom = fetched.url;
     if (!response.ok) {
       await discard(response);
       return { error: `the site answered ${response.status}` };
@@ -187,7 +254,23 @@ export async function fetchWebImage(
     };
   }
   const type = webImageType(bytes);
-  if (!type) return { error: "it isn't a PNG, JPEG, GIF or WebP picture" };
+  if (!type) {
+    if (fromPage) return { error: "it isn't a PNG, JPEG, GIF or WebP picture" };
+    const preview = pagePreviewImage(
+      new TextDecoder().decode(bytes),
+      fetchedFrom,
+    );
+    if (!preview) {
+      return {
+        error:
+          "it isn't a PNG, JPEG, GIF or WebP picture, or a web page with a preview picture (og:image)",
+      };
+    }
+    const shown = await fetchWebImage(preview, artifacts, true);
+    return "error" in shown
+      ? { error: `its page's preview picture, ${preview}: ${shown.error}` }
+      : { ...shown, source: preview };
+  }
   const imageData = `data:${type.mime};base64,${toBase64(bytes)}`;
   if (!artifacts) return { imageData };
   const now = new Date();
