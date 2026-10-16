@@ -39,7 +39,11 @@ import {
 } from "./host";
 import type { SlideChart } from "./chartSlide";
 import { markdownSlideHtml } from "./markdownSlide";
-import { hasSlideImageMark, slideImageAlt } from "./slideHtml";
+import {
+  SLIDE_IMAGE_MARK,
+  hasSlideImageMark,
+  slideImageAlt,
+} from "./slideHtml";
 import { NOT_SAVED, SLIDESHOWS_DIR, updateRecord } from "./records";
 import { createRepeatGuard } from "./repeatGuard";
 import { fetchWebImage } from "./webImage";
@@ -205,6 +209,8 @@ interface SlideContent {
   imagePath?: string;
   /** Where the picture came from, when it is from the web. */
   imageUrl?: string;
+  /** The picture's own address, when imageUrl was a page's (its preview). */
+  source?: string;
   html?: string;
   markdown?: string;
   chart?: SlideChart;
@@ -256,7 +262,9 @@ const placedPicturePrompt = (slide: SlideArgs, hasReference: boolean) =>
 async function webPicture(
   context: SequenceContext,
   imageUrl: string,
-): Promise<{ imageData: string; imagePath?: string } | { error: string }> {
+): Promise<
+  { imageData: string; imagePath?: string; source?: string } | { error: string }
+> {
   const fetched = await fetchWebImage(imageUrl, context.files?.artifacts);
   if ("error" in fetched) {
     console.info(
@@ -387,6 +395,7 @@ async function makeSlide(
     prompt,
     pictureFailed,
     urlFailed,
+    source,
   } = content;
 
   const slideshowId = show.id;
@@ -437,8 +446,15 @@ async function makeSlide(
     title: slide.title || `Slide ${slide.slide}`,
     message: [
       `${noun} ${slide.slide} of ${slide.totalSlides} of slideshow "${slideshowId}" is on the screen`,
-      imageUrl ? `its picture is from ${imageUrl}` : "",
+      imageUrl
+        ? source
+          ? `its picture is the preview picture of ${imageUrl} (${source})`
+          : `its picture is from ${imageUrl}`
+        : "",
       imagePath ? `saved to ${imagePath}` : "",
+      slide.unplacedImageUrl
+        ? `the picture at ${slide.unplacedImageUrl} isn't shown: ${slide.chart ? "a chart slide has no picture" : `the slide has no ${SLIDE_IMAGE_MARK} for it (<img src="${SLIDE_IMAGE_MARK}" alt="..." class="..."> where it goes)`}`
+        : "",
       urlFailed !== undefined
         ? `the picture at ${slide.imageUrl} couldn't be shown (${urlFailed}), so it was drawn instead`
         : "",

@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import { presentSlide } from "../src/core/presentSlide";
 import { parseSlideArgs } from "../src/core/definitions";
-import { MAX_WEB_IMAGE_BYTES, fetchWebImage } from "../src/core/webImage";
+import {
+  MAX_WEB_IMAGE_BYTES,
+  fetchWebImage,
+  pagePreviewImage,
+} from "../src/core/webImage";
 import { fakeHost, record } from "./fakeHost";
 
 // The web, as the tests see it: a response per URL, and the URLs fetched.
@@ -290,4 +294,138 @@ test("a response that isn't read is cancelled", async () => {
   assert.equal(cancelled, 2);
   await fetchWebImage("https://example.com/declared.png", undefined);
   assert.equal(cancelled, 3);
+});
+
+const page = (head: string) => () =>
+  new Response(
+    `<!doctype html><html><head>${head}</head><body></body></html>`,
+    {
+      headers: { "content-type": "text/html" },
+    },
+  );
+
+test("a web page's address shows its preview picture (og:image)", async () => {
+  // As Car and Driver writes it: an absolute address with &amp; in it.
+  web.set(
+    "https://example.com/article",
+    page(
+      '<meta property="og:image" content="https://cdn.example.com/hero.png?crop=1&amp;resize=1200" data-next-head/>',
+    ),
+  );
+  web.set(
+    "https://cdn.example.com/hero.png?crop=1&resize=1200",
+    () => new Response(PNG),
+  );
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 2,
+    title: title("Roadster"),
+    imageUrl: "https://example.com/article",
+  });
+
+  assert.equal(host.calls.length, 0);
+  assert.match(String(data(result).imageData), /^data:image\/png;base64,/);
+  assert.equal(data(result).imageUrl, "https://example.com/article");
+  assert.match(
+    result.message,
+    /its picture is the preview picture of https:\/\/example\.com\/article \(https:\/\/cdn\.example\.com\/hero\.png\?crop=1&resize=1200\)/,
+  );
+});
+
+test("a page's preview picture is checked like any address, and a page in turn isn't followed", async () => {
+  web.set(
+    "https://example.com/inside",
+    page('<meta property="og:image" content="https://10.0.0.1/x.png">'),
+  );
+  web.set(
+    "https://example.com/pages",
+    page('<meta property="og:image" content="https://example.com/article2">'),
+  );
+  web.set(
+    "https://example.com/article2",
+    page('<meta property="og:image" content="https://example.com/tower.png">'),
+  );
+  web.set("https://example.com/bare", page("<title>no preview</title>"));
+
+  const inside = await fetchWebImage("https://example.com/inside", undefined);
+  assert.ok(
+    "error" in inside &&
+      /preview picture, https:\/\/10\.0\.0\.1\/x\.png: .*IP address/.test(
+        inside.error,
+      ),
+  );
+  assert.ok(!fetched.includes("https://10.0.0.1/x.png"));
+
+  const pages = await fetchWebImage("https://example.com/pages", undefined);
+  assert.ok("error" in pages && /isn't a PNG/.test(pages.error));
+  assert.ok(!fetched.includes("https://example.com/tower.png"));
+
+  const bare = await fetchWebImage("https://example.com/bare", undefined);
+  assert.ok(
+    "error" in bare && /web page with a preview picture/.test(bare.error),
+  );
+});
+
+test("a page's preview picture is read from its meta tags, however they are written", () => {
+  const at = "https://example.com/news/story";
+  assert.equal(
+    pagePreviewImage(`<meta content='/img/a.jpg' property='og:image'>`, at),
+    "https://example.com/img/a.jpg",
+  );
+  assert.equal(
+    pagePreviewImage(
+      `<meta name="twitter:image" content="https://x.example/t.jpg">`,
+      at,
+    ),
+    "https://x.example/t.jpg",
+  );
+  assert.equal(
+    pagePreviewImage(
+      `<meta name="twitter:image" content="https://x.example/t.jpg"><META PROPERTY="OG:IMAGE" CONTENT="https://x.example/o.jpg">`,
+      at,
+    ),
+    "https://x.example/o.jpg",
+  );
+  assert.equal(
+    pagePreviewImage(`<meta property="og:title" content="T">`, at),
+    null,
+  );
+});
+
+test("an imageUrl on a slide with no place for a picture isn't fetched, and the model is told", async () => {
+  // From MulmoChat: a page's address on an HTML slide without {{image}}.
+  const host = fakeHost();
+  const result = await presentSlide(host.context(), {
+    slide: 1,
+    totalSlides: 1,
+    title: title("Official reveal shot"),
+    imageUrl: "https://example.com/article",
+    html: '<div class="w-full h-full">Roadster</div>',
+  });
+
+  assert.deepEqual(fetched, []);
+  assert.equal(data(result).imageData, undefined);
+  assert.match(
+    result.message,
+    /the picture at https:\/\/example\.com\/article isn't shown: the slide has no \{\{image\}\} for it/,
+  );
+});
+
+test("a character reference past Unicode in a page's meta tags doesn't stop the slide", async () => {
+  web.set(
+    "https://example.com/odd",
+    page(
+      '<meta property="og:title" content="&#x110000; &#99999999999;"><meta property="og:image" content="https://example.com/tower.png">',
+    ),
+  );
+  const result = await fetchWebImage("https://example.com/odd", undefined);
+  assert.ok("imageData" in result);
+  assert.equal(
+    pagePreviewImage(
+      '<meta property="og:image" content="https://x.example/a&#x110000;.jpg">',
+      "https://x.example/",
+    ),
+    "https://x.example/a&#x110000;.jpg",
+  );
 });

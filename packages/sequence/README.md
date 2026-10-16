@@ -91,8 +91,10 @@ and the model is told.
 
 ### A picture from the web
 
-`imageUrl` is the address of an image file the model found (in a search, or from the user), shown
-instead of a generated picture: on a picture slide, or at an HTML or Markdown slide's `{{image}}`
+`imageUrl` is the address of an image file the model found (in a search, or from the user), or of
+a web page about the thing (an article from a search), whose preview picture (`og:image`, else
+`twitter:image`) is shown: models have pages' addresses far more often than image files'. It is
+shown instead of a generated picture: on a picture slide, or at an HTML or Markdown slide's `{{image}}`
 in place of the one `imagePrompt` would draw. `execute()` fetches it and returns it as a `data:`
 URL (`imageData`), so the slides' policy (`img-src data: blob:`) is unchanged and a slide still
 can't send anything out in an image URL. It is saved as the hosts save their own pictures,
@@ -102,7 +104,8 @@ step of a guide drawn from it, can use it; the result and the record keep the ad
 
 Since MulmoChat fetches it on its server, from an address the model chose: only `https`, no IP
 addresses and no local names (`localhost`, `*.local`, a name without a dot…), every redirect (at
-most 3) checked the same way, 10 seconds and 5 MB at most, and only bytes that are a PNG, JPEG, GIF
+most 3) and a page's preview picture checked the same way (a preview that is a page in turn isn't
+followed), 10 seconds and 5 MB at most, and only bytes that are a PNG, JPEG, GIF
 or WebP picture, whatever the server says its type is. A public name that resolves to a private
 address isn't caught: that needs a DNS lookup, which a page can't make; what comes back is shown
 only if it is a picture. MulmoChat's server runs on the user's machine, so it reaches what their
@@ -110,7 +113,8 @@ browser reaches; a host whose server runs elsewhere should fetch on a network th
 reach. MulmoGlass fetches it in the page, where a site that doesn't allow CORS
 can't be read.
 
-A picture that can't be fetched is drawn instead, from `imagePrompt` (an HTML or Markdown slide's
+An `imageUrl` on a slide with no place for a picture (an HTML slide without `{{image}}`, a chart)
+isn't fetched, and the model is told. A picture that can't be fetched is drawn instead, from `imagePrompt` (an HTML or Markdown slide's
 from its alt text or title, as without `imageUrl`), and the model is told; a picture slide with no
 `imagePrompt` isn't shown, and the model is told why, so it can give another address.
 
