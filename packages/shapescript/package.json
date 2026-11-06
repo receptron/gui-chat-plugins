@@ -1,6 +1,6 @@
 {
   "name": "@gui-chat-plugin/shapescript",
-  "version": "8.2.2",
+  "version": "8.2.3",
   "description": "presentShapeScript — interactive 3D models authored in the ShapeScript language (parser + Three.js renderer), with USDZ / GLB / STL export, for GUI Chat Protocol hosts. Core (tool definition + execute) on `.`, Vue View/Preview on `./vue`, server-only rasterising on `./render`.",
   "type": "module",
   "main": "./dist/index.js",
@@ -42,11 +42,11 @@
   },
   "dependencies": {
     "@gui-chat-plugin/common": "^0.1.0",
-    "@types/three": "^0.186.0",
+    "@types/three": "^0.187.0",
     "manifold-3d": "^3.5.4",
-    "three": "^0.186.0",
+    "three": "^0.187.0",
     "three-bvh-csg": "^0.0.18",
-    "three-mesh-bvh": "0.9.15"
+    "three-mesh-bvh": "0.9.18"
   },
   "peerDependencies": {
     "gui-chat-protocol": "^2.3.0",
@@ -60,9 +60,9 @@
   },
   "devDependencies": {
     "gui-chat-protocol": "^2.3.0",
-    "puppeteer": "^25.12.0",
-    "vue": "^3.5.43",
-    "vue-tsc": "^3.3.11"
+    "puppeteer": "^25.16.0",
+    "vue": "^3.5.45",
+    "vue-tsc": "^3.3.14"
   },
   "license": "MIT",
   "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/shapescript#readme",
