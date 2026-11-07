@@ -37,12 +37,12 @@
   },
   "peerDependencies": {
     "@mulmochat-plugin/ui-image": "^0.4.1",
-    "gui-chat-protocol": "^2.2.0",
+    "gui-chat-protocol": "^2.3.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@mulmochat-plugin/ui-image": "^0.4.1",
-    "gui-chat-protocol": "^2.2.0",
+    "gui-chat-protocol": "^2.3.0",
     "vue": "^3.5.45"
   },
   "license": "MIT",
