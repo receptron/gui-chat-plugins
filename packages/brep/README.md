@@ -71,7 +71,8 @@ function main() {
 
 A script is JavaScript in replicad Studio's form: `replicad` is in scope and `main()` returns the
 solid, an array of solids, or `{ shape, name }` objects. It is not a module: `import` and `export`
-are refused, with what to write instead. Units are millimetres, Z is up.
+are refused, with what to write instead. Units are millimetres, Z is up, and the front of a part
+faces -Y.
 
 - `script` builds a new model and saves it as `artifacts/brep/<slug>-<epoch-ms>-<token>.replicad.js`.
 - `path` rebuilds a script that is already saved, after the model has edited the file. The exports
@@ -99,6 +100,14 @@ in `result.data.mesh`: triangles and edge segments, positions as 16-bit steps ac
 box, base64. The enclosure in the tests is about 110 kB. It is for looking at; the STL and STEP
 files are the model. The Preview is a card of text (title, size, warning count), not a second 3D
 view: a page is allowed only a few WebGL contexts.
+
+The View is the model on top, a bar, and everything else (report, files, script) below. The user
+drags the bar to give the model more or less height (arrow keys move it too, a double click puts
+it back), and the choice is kept in `localStorage` for the next result. What is below the bar
+scrolls in the height that is left. The View never overflows its box: a host mounts it in one that
+clips, and in a short pane the model and the scrolling part each keep a share. The layout is the
+component's own scoped CSS, not Tailwind variants: a host loads every plugin's stylesheet, and a
+later one's plain `flex-col` overrides an earlier one's `@3xl:flex-row`.
 
 It uses no `dispatch` and no host route, so it works in any host that shows the result. That is
 also why it does not edit: changing the script means building again, which is the tool's job. The

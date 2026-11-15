@@ -1,10 +1,15 @@
 <template>
+  <!-- The layout (the model, the bar the user drags, the part that scrolls)
+       is in this file's own CSS, at the end, not in Tailwind classes. See
+       the note there. -->
   <div
-    class="flex h-full min-h-0 w-full flex-col bg-white text-sm text-slate-800"
+    ref="root"
+    class="brep-view bg-white text-sm text-slate-800"
     data-testid="brep-view"
   >
     <div
-      class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2"
+      ref="header"
+      class="brep-header flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2"
     >
       <h1
         class="mr-auto min-w-0 truncate text-base font-semibold text-slate-900"
@@ -38,27 +43,51 @@
       </div>
     </div>
 
-    <div class="flex min-h-0 flex-1 flex-col md:flex-row">
-      <div class="relative min-h-64 min-w-0 flex-1 bg-slate-100">
-        <div
-          ref="viewport"
-          class="absolute inset-0"
-          data-testid="brep-viewport"
-        />
-        <p
-          v-if="viewportMessage"
-          class="absolute inset-0 flex items-center justify-center p-4 text-center text-slate-500"
-          data-testid="brep-viewport-message"
-        >
-          {{ viewportMessage }}
-        </p>
-      </div>
-
-      <aside
-        v-if="report"
-        class="max-h-[45%] w-full shrink-0 overflow-y-auto border-t border-slate-200 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0"
-        data-testid="brep-report"
+    <div
+      class="brep-model bg-slate-100"
+      :style="{ height: `${height}px` }"
+      data-testid="brep-model"
+    >
+      <div
+        ref="viewport"
+        class="absolute inset-0"
+        data-testid="brep-viewport"
+      />
+      <p
+        v-if="viewportMessage"
+        class="absolute inset-0 flex items-center justify-center p-4 text-center text-slate-500"
+        data-testid="brep-viewport-message"
       >
+        {{ viewportMessage }}
+      </p>
+    </div>
+
+    <!-- The bar between the model and what scrolls below it. A separator
+         that takes focus is a slider to a screen reader: arrows move it. -->
+    <div
+      ref="bar"
+      class="brep-bar"
+      :class="{ 'brep-bar-dragging': dragging }"
+      role="separator"
+      aria-orientation="horizontal"
+      tabindex="0"
+      :aria-label="t.resizeModel"
+      :aria-valuenow="height"
+      :aria-valuemin="0"
+      :aria-valuemax="Math.max(available, 0)"
+      data-testid="brep-bar"
+      @pointerdown="startDrag"
+      @pointermove="drag"
+      @pointerup="endDrag"
+      @pointercancel="endDrag"
+      @keydown="nudge"
+      @dblclick="resetHeight"
+    >
+      <span class="brep-bar-grip" />
+    </div>
+
+    <div class="brep-below" data-testid="brep-below">
+      <section v-if="report" class="p-3" data-testid="brep-report">
         <div
           v-if="report.warnings.length"
           class="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900"
@@ -164,32 +193,32 @@
           </li>
         </ul>
         <p v-else class="mt-1 text-slate-500">{{ t.notSaved }}</p>
-      </aside>
-    </div>
+      </section>
 
-    <details
-      v-if="script"
-      class="border-t border-slate-200"
-      data-testid="brep-script"
-    >
-      <!-- A click inside a <summary> toggles the panel, so the Copy button
-           stops it: copying must not open or close the source. -->
-      <summary
-        class="flex cursor-pointer items-center gap-2 px-3 py-2 text-slate-700"
+      <details
+        v-if="script"
+        class="border-t border-slate-200"
+        data-testid="brep-script"
       >
-        <span class="mr-auto">{{ t.script }}</span>
-        <button
-          type="button"
-          class="rounded border border-slate-300 px-1.5 py-0.5 text-xs hover:bg-slate-100"
-          @click.prevent.stop="copy(script, 'script')"
+        <!-- A click inside a <summary> toggles the panel, so the Copy button
+             stops it: copying must not open or close the source. -->
+        <summary
+          class="flex cursor-pointer items-center gap-2 px-3 py-2 text-slate-700"
         >
-          {{ copiedKey === "script" ? t.copied : t.copy }}
-        </button>
-      </summary>
-      <pre
-        class="max-h-72 overflow-auto bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800"
-      ><code>{{ script }}</code></pre>
-    </details>
+          <span class="mr-auto">{{ t.script }}</span>
+          <button
+            type="button"
+            class="rounded border border-slate-300 px-1.5 py-0.5 text-xs hover:bg-slate-100"
+            @click.prevent.stop="copy(script, 'script')"
+          >
+            {{ copiedKey === "script" ? t.copied : t.copy }}
+          </button>
+        </summary>
+        <pre
+          class="overflow-x-auto bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800"
+        ><code>{{ script }}</code></pre>
+      </details>
+    </div>
   </div>
 </template>
 
@@ -208,6 +237,13 @@ import {
   type ModelObjects,
   type ViewName,
 } from "./scene";
+import {
+  KEY_STEP,
+  modelHeight,
+  readStoredHeight,
+  STORAGE_KEY,
+  storeHeight,
+} from "./split";
 
 const props = defineProps<{
   selectedResult: ToolResult<PresentBrepData>;
@@ -284,6 +320,77 @@ async function copy(text: string, key: string): Promise<void> {
   copiedKey.value = key;
   clearTimeout(copiedTimer);
   copiedTimer = setTimeout(() => (copiedKey.value = null), 1500);
+}
+
+// ── The bar under the model ─────────────────────────────────────────
+
+const root = ref<HTMLDivElement | null>(null);
+const header = ref<HTMLDivElement | null>(null);
+const bar = ref<HTMLDivElement | null>(null);
+/** Where the user left the bar, px; null until they move it. */
+const wanted = ref<number | null>(readStoredHeight());
+/** What the model and the part below it share, px. */
+const available = ref(0);
+const height = computed(() => modelHeight(wanted.value, available.value));
+const dragging = ref(false);
+let rootObserver: ResizeObserver | null = null;
+/** Pointer y and model height when the drag began. */
+let dragFrom: { y: number; height: number } | null = null;
+
+function measure(): void {
+  if (!root.value) return;
+  available.value =
+    root.value.clientHeight -
+    (header.value?.offsetHeight ?? 0) -
+    (bar.value?.offsetHeight ?? 0);
+}
+
+/** Put the bar at `value`, as far as it fits, and remember where it ended. */
+function setHeight(value: number): void {
+  wanted.value = modelHeight(value, available.value);
+  storeHeight(wanted.value);
+}
+
+function startDrag(event: PointerEvent): void {
+  if (event.button !== 0) return;
+  dragFrom = { y: event.clientY, height: height.value };
+  dragging.value = true;
+  // The bar keeps the pointer when it leaves it, over the canvas included.
+  bar.value?.setPointerCapture(event.pointerId);
+  event.preventDefault();
+}
+
+function drag(event: PointerEvent): void {
+  if (!dragFrom) return;
+  setHeight(dragFrom.height + event.clientY - dragFrom.y);
+}
+
+function endDrag(): void {
+  dragFrom = null;
+  dragging.value = false;
+}
+
+function nudge(event: KeyboardEvent): void {
+  const moves: Record<string, number> = {
+    ArrowUp: height.value - KEY_STEP,
+    ArrowDown: height.value + KEY_STEP,
+    Home: 0,
+    End: available.value,
+  };
+  const target = moves[event.key];
+  if (target === undefined) return;
+  event.preventDefault();
+  setHeight(target);
+}
+
+/** Back to the share the View starts with. */
+function resetHeight(): void {
+  wanted.value = null;
+  try {
+    globalThis.localStorage?.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing was kept.
+  }
 }
 
 // ── The 3D view ─────────────────────────────────────────────────────
@@ -423,6 +530,12 @@ function showModel(): void {
 }
 
 onMounted(() => {
+  if (root.value) {
+    rootObserver = new ResizeObserver(measure);
+    rootObserver.observe(root.value);
+    if (header.value) rootObserver.observe(header.value);
+  }
+  measure();
   initScene();
   showModel();
 });
@@ -439,6 +552,7 @@ onUnmounted(() => {
   clearTimeout(copiedTimer);
   if (frame) cancelAnimationFrame(frame);
   resizeObserver?.disconnect();
+  rootObserver?.disconnect();
   controls?.dispose();
   objects?.dispose();
   if (renderer) {
@@ -450,3 +564,89 @@ onUnmounted(() => {
   renderer = null;
 });
 </script>
+
+<style scoped>
+/* The layout, in this View's own rules.
+ *
+ * It was Tailwind classes, with a side-by-side layout as width-dependent
+ * variants (`@3xl:flex-row` over `flex-col`). That holds only while this
+ * package's stylesheet is the last word. MulmoChat loads every plugin's
+ * stylesheet, 36 of them, and each one that also uses `flex-col` or
+ * `shrink-0` declares it again, AFTER this package's variant, with the same
+ * weight: the later rule wins, and the layout comes out half applied.
+ *
+ * These rules are scoped to this component and outside any cascade layer, so
+ * no utility class from any stylesheet outranks them. Colours and spacing
+ * stay Tailwind: nothing overrides those by width.
+ */
+
+/* Three rows that fill the host's box and never overflow it: the header, the
+ * model at the height the user gave it (set inline, from `split.ts`), the bar,
+ * and below it everything else, which takes what is left and scrolls. A host
+ * mounts the View in a box of its own size that clips (MulmoChat:
+ * `overflow-hidden`), so the part that scrolls has to be in here. */
+.brep-view {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.brep-header {
+  display: flex;
+  flex: none;
+}
+
+/* `flex: none`: its height is the user's, not what a flex column would
+ * squeeze it to. */
+.brep-model {
+  position: relative;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+}
+
+.brep-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 0.75rem;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: row-resize;
+  /* A touch on the bar drags it; it does not scroll the page. */
+  touch-action: none;
+  user-select: none;
+}
+
+.brep-bar:hover,
+.brep-bar:focus-visible,
+.brep-bar-dragging {
+  background: #e2e8f0;
+  outline: none;
+}
+
+.brep-bar-grip {
+  width: 2.5rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  background: #94a3b8;
+}
+
+.brep-bar:focus-visible .brep-bar-grip,
+.brep-bar-dragging .brep-bar-grip {
+  background: #334155;
+}
+
+/* `min-height: 0` lets it be shorter than its content, which is what makes
+ * it the thing that scrolls. */
+.brep-below {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+</style>

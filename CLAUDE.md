@@ -49,4 +49,11 @@ plugin lists it under `dependencies`.
 - **Keep changes to MulmoClaude to a minimum**: its CI takes a long time. Nothing here should need
   one.
 - A package's Views use Tailwind classes; the build compiles them into its `dist/style.css`, which
-  both apps load for every `@gui-chat-plugin/*` package.
+  both apps load for every `@gui-chat-plugin/*` package. Because every package's stylesheet is
+  loaded together, a variant that overrides a plain class by width (`md:flex-row` or
+  `@3xl:flex-row` over `flex-col`) is not safe: a later stylesheet's plain `flex-col` wins. Put
+  layout that changes with width in the component's own `<style scoped>` (brep's View).
+- **Trying a rebuilt package in MulmoChat**: `yarn build` here, `yarn upgrade @gui-chat-plugin/<name>`
+  there, then delete `../../chat/node_modules/.vite/deps` and restart `yarn dev`. A `file:`
+  dependency does not change the lockfile, so Vite keeps serving its pre-bundled copy of the old
+  page code, beside the new stylesheet.

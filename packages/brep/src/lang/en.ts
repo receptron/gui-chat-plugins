@@ -30,6 +30,7 @@ const en: Messages = {
   script: "Script",
   copy: "Copy",
   copied: "Copied",
+  resizeModel: "Resize the 3D view",
 };
 
 export default en;

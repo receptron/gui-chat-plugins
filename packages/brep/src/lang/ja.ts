@@ -30,6 +30,7 @@ const ja: Messages = {
   script: "スクリプト",
   copy: "コピー",
   copied: "コピーしました",
+  resizeModel: "3Dビューの高さを変更",
 };
 
 export default ja;

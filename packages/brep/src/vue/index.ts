@@ -6,7 +6,7 @@ import type { PresentBrepArgs, PresentBrepData } from "../core/types";
 import View from "./View.vue";
 import Preview from "./Preview.vue";
 
-export const SYSTEM_PROMPT = `Use the ${TOOL_NAME} tool for a part that will be made or that must fit: brackets, enclosures, flanges, jigs, anything with fillets, chamfers, holes to a size, or a STEP file to hand on. It builds a replicad script with a CAD kernel and returns a report to check the result against. For a model that is only looked at, use ShapeScript.`;
+export const SYSTEM_PROMPT = `Use the ${TOOL_NAME} tool for a part that will be made or that must fit: brackets, enclosures, flanges, jigs, anything with fillets, chamfers, holes to a size, or a STEP file to hand on. It builds a replicad script with a CAD kernel and returns a report to check the result against. For a model that is only looked at, use ShapeScript. Z is up and the user looks from -Y: put the side they should see first at -Y (a chair's seat front at -Y, its backrest at +Y).`;
 
 /** The plugin for a page: the View and the Preview, and the tool's
  *  definition. Its `execute` refuses, on purpose: the model is built by the

@@ -1,6 +1,6 @@
 export const TOOL_NAME = "presentBrep";
 
-const SCRIPT_GUIDE = `JavaScript in replicad's form. \`replicad\` is in scope; the script defines \`main()\`, which returns the solid (or an array of solids, or of \`{ shape, name }\`). No \`import\` or \`export\`. Units are millimetres, Z is up.
+const SCRIPT_GUIDE = `JavaScript in replicad's form. \`replicad\` is in scope; the script defines \`main()\`, which returns the solid (or an array of solids, or of \`{ shape, name }\`). No \`import\` or \`export\`. Units are millimetres, Z is up, and the front of the part faces -Y: the Front view and the first 3D view look from -Y toward +Y, so a chair's backrest goes at +Y and a panel's connectors face -Y.
 
 ## Example: a flanged hub
 

@@ -35,4 +35,6 @@ export interface Messages {
   script: string;
   copy: string;
   copied: string;
+  /** The bar under the 3D view, for a screen reader. */
+  resizeModel: string;
 }

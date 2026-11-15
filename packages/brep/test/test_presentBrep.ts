@@ -68,6 +68,10 @@ describe("presentBrep", () => {
       /fillet\(4\) selected 1 of \d+ edges, volume \+\d/,
     );
     assert.ok(result.message.includes(files.step));
+    // Which side the user sees: the model cannot look, and built two chairs
+    // with their backs to the viewer.
+    assert.match(result.message, /Shown to the user from -Y first/);
+    assert.match(result.instructions ?? "", /back to them/);
     assert.deepEqual(result.jsonData, { report: result.data.report, files });
     // The mesh goes to the View only: a hundred kilobytes of base64 is no
     // use to the model.

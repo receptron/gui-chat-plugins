@@ -23,7 +23,14 @@ export interface BrepExecuteContext extends ToolContext {
 }
 
 const BUILT_ACK =
-  "Read the report against what you meant to build before telling the user it is done: the size, the face counts, and how many edges each fillet and chamfer selected. A selector that picked too many edges is not an error and shows only there. Then look at the drawing sheet if you can open it. Tell the user where the STEP and STL files are.";
+  "Read the report against what you meant to build before telling the user it is done: the size, the face counts, and how many edges each fillet and chamfer selected. A selector that picked too many edges is not an error and shows only there. Check which side the user sees first (the message says): if the part has its back to them, turn it and build again. Then look at the drawing sheet if you can open it. Tell the user where the STEP and STL files are.";
+
+/** Said in every result, not only in the guide: the guide's sentence about
+ *  which way is front did not stop a second chair in MulmoChat from being
+ *  built with its back at -Y. Here it arrives with the result the model is
+ *  about to describe, and as a fact about THIS model it can check. */
+const VIEW_NOTE =
+  "\nShown to the user from -Y first (the 3D view and the Front drawing look from -Y toward +Y): whatever is at -Y faces them.";
 
 const FAILED_ACK =
   "The model was not built. Correct the script using the diagnostic (the line, and what the operation had to work with) and call presentBrep again.";
@@ -148,7 +155,7 @@ export const presentBrep = async (
       ...(files ? { files } : {}),
     };
     return {
-      message: `Built "${args.title}": ${formatReport(built.report)}${saved}`,
+      message: `Built "${args.title}": ${formatReport(built.report)}${VIEW_NOTE}${saved}`,
       title: args.title,
       data,
       jsonData: { report: built.report, ...(files ? { files } : {}) },
