@@ -126,7 +126,8 @@ function edgeSelection(
   let size: unknown = config;
   if (typeof config === "function") {
     const radiusOf = config as (edge: Edge) => unknown;
-    edges = all.filter((edge) => radiusOf(edge) != null);
+    // As replicad reads it: no radius, or a radius of 0, leaves the edge.
+    edges = all.filter((edge) => Boolean(radiusOf(edge)));
     size = undefined;
   } else if (isRecord(config) && "filter" in config) {
     edges = (config.filter as Finds<Edge>).find(shape);

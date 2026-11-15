@@ -145,6 +145,18 @@ describe("a profile that is drawn wrong", () => {
   });
 });
 
+describe("what a radius function selects", () => {
+  it("does not count an edge it gives a radius of 0", async () => {
+    // replicad leaves such an edge alone; counted, the report said 12 of 12
+    // for a fillet of the four short edges.
+    const { report } = await buildModel(
+      plate("plate.fillet((e) => (replicad.measureLength(e) < 6 ? 1 : 0))"),
+    );
+    assert.equal(report.operations[0]?.selected, 4);
+    assert.equal(report.operations[0]?.available, 12);
+  });
+});
+
 describe("results that are built but wrong", () => {
   it("warns that fused pieces do not touch", async () => {
     const { report } = await buildModel(
@@ -208,23 +220,26 @@ describe("scripts that do not run", () => {
     assert.ok(Date.now() - started < 5000);
   });
 
-  it("stops an async main that never settles, and builds the next one", async () => {
-    // V8's limit ends when main() returns its promise. Unlimited, this one
-    // held the build queue: no later build ever ran.
+  it("refuses an async main, without running it", async () => {
+    // V8's limit ends when main() returns its promise. `await` and then a
+    // loop ran outside it and held the host, and every later build, for
+    // good: this script would never come back if it were called.
     const error = await failure(
-      "async function main() { return new Promise(() => {}); }",
-      50,
+      "async function main() { await Promise.resolve(); for (;;) {} }",
+      200,
     );
-    assert.equal(error.code, "TIMEOUT");
+    assert.equal(error.code, "SCRIPT_ERROR");
+    assert.match(error.message, /not an async one/);
     const { report } = await buildModel(plate("plate"));
     assert.equal(report.volume, 4000);
   });
 
-  it("builds what an async main resolves to", async () => {
-    const { report } = await buildModel(
-      "const { makeBaseBox } = replicad;\nasync function main() { return makeBaseBox(40, 20, 5); }",
+  it("refuses a promise returned by an ordinary main", async () => {
+    const error = await failure(
+      "function main() { return new Promise(() => {}); }",
     );
-    assert.equal(report.volume, 4000);
+    assert.equal(error.code, "SCRIPT_ERROR");
+    assert.match(error.message, /not an async one/);
   });
 
   it("builds again after a failure", async () => {

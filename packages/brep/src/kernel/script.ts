@@ -68,22 +68,11 @@ function withTimeLimit<T>(run: () => T, timeoutMs: number): T {
   }
 }
 
-/** What `value` resolves to, or a timeout after `remainingMs`. */
-async function settled(value: unknown, remainingMs: number): Promise<unknown> {
-  if (!(value instanceof Promise)) return value;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const limit = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject({ code: "ERR_SCRIPT_EXECUTION_TIMEOUT" }),
-      Math.max(remainingMs, 0),
-    );
-  });
-  try {
-    return await Promise.race([value, limit]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const NOT_ASYNC =
+  "main() must be an ordinary function that returns the solid, not an async one: the time limit cannot stop a script once it has awaited. Build the solid without `await`.";
+
+const isAsyncFunction = (value: unknown): boolean =>
+  typeof value === "function" && value.constructor?.name === "AsyncFunction";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -117,20 +106,24 @@ export async function runScript(
   const define = compile(script);
   let returned: unknown;
   try {
-    const started = Date.now();
-    const result = withTimeLimit(() => {
+    returned = withTimeLimit(() => {
       const main = define(kernel.replicad);
       if (!main)
         throw new BrepError(
           "SCRIPT_ERROR",
           "The script must define a function named `main` that returns the solid.",
         );
+      // Refused before it is called. V8's limit ends when main() returns its
+      // promise: `await` and then a loop runs outside it, with the event loop
+      // blocked, and held the host and every later build for good.
+      if (isAsyncFunction(main)) throw new BrepError("SCRIPT_ERROR", NOT_ASYNC);
       return main();
     }, timeoutMs);
-    // An `async main` has returned by now, with a promise V8's limit no
-    // longer covers. One that never settles would hold the build queue, and
-    // every build after it, for good.
-    returned = await settled(result, timeoutMs - (Date.now() - started));
+    if (returned instanceof Promise) {
+      // Nothing waits for it; a rejection must not take the host down.
+      returned.catch(() => undefined);
+      throw new BrepError("SCRIPT_ERROR", NOT_ASYNC);
+    }
   } catch (cause) {
     if (cause instanceof BrepError) throw cause;
     if (isRecord(cause) && cause.code === "ERR_SCRIPT_EXECUTION_TIMEOUT")

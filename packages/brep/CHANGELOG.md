@@ -23,3 +23,6 @@
   takes distances is refused with the method to use, and an extrusion that is not a valid solid
   stops the build there: a model in MulmoChat was told "Standard_OutOfRange" and "[object
   WebAssembly.Exception]", and took its script apart.
+- An `async main` is refused before it runs: the time limit ends where a script first awaits, and
+  a loop after that held the host. A radius function's edges with a radius of 0 are not counted
+  as selected.

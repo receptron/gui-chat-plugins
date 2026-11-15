@@ -71,7 +71,8 @@ function main() {
 
 A script is JavaScript in replicad Studio's form: `replicad` is in scope and `main()` returns the
 solid, an array of solids, or `{ shape, name }` objects. It is not a module: `import` and `export`
-are refused, with what to write instead. Units are millimetres, Z is up, and the front of a part
+are refused, with what to write instead. `main` is an ordinary function: an `async` one is
+refused before it runs, because the time limit ends where a script first awaits. Units are millimetres, Z is up, and the front of a part
 faces -Y.
 
 - `script` builds a new model and saves it as `artifacts/brep/<slug>-<epoch-ms>-<token>.replicad.js`.
@@ -175,5 +176,7 @@ An error result has no `data`, and `jsonData.error` is `{ code, message, line?, 
   `dispatch`, which each host has to route.
 - **A picture the model can look at.** The drawing sheet is SVG; a model that reads images needs
   it rasterised.
+- **Text.** replicad loads a font asynchronously, and `main` cannot be `async` until a build runs
+  where it can be stopped.
 - **Isolation.** Each build could run in a worker, which would free the kernel's memory after it
   and keep the host's event loop free.
