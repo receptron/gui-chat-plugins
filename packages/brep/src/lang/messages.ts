@@ -31,7 +31,8 @@ export interface Messages {
   fileStep: string;
   fileStl: string;
   fileDrawings: string;
-  notSaved: string;
+  /** The verb on a file's button: "Download STEP". */
+  download: string;
   script: string;
   copy: string;
   copied: string;

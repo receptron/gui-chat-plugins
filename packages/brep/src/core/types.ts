@@ -24,6 +24,18 @@ export interface BrepFiles {
   views: string;
 }
 
+/** The exports themselves, each as `pack` (`packed.ts`) makes it, for the
+ *  View's download buttons. The script is not here: `data.script` is it. */
+export interface BrepDownloads {
+  /** The file name without an extension: the saved files' own, or one made
+   *  from the title on a host that saved nothing. */
+  name: string;
+  step: string;
+  stl: string;
+  /** The sheet of line drawings, SVG. */
+  views: string;
+}
+
 /** What a View draws from. The mesh is here, packed, because a View cannot
  *  run the kernel and a host owes it no way to read a file. */
 export interface PresentBrepData {
@@ -33,6 +45,8 @@ export interface PresentBrepData {
   /** Absent on a host with no file layer: the model was built and checked,
    *  and nothing was saved. */
   files?: BrepFiles;
+  /** Absent in a result from before the View had downloads. */
+  downloads?: BrepDownloads;
 }
 
 export interface BrepDiagnostic {

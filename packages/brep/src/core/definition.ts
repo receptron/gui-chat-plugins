@@ -23,7 +23,7 @@ function main() {
 
 ## Building
 
-- Profiles: \`draw([x, y]).lineTo(...).close()\`, \`drawRoundedRectangle(w, h, r)\`, \`drawCircle(r)\`; then \`.sketchOnPlane("XY", offset)\` and \`.extrude(distance)\` or \`.revolve()\`. A sketch on "XZ" extrudes toward -Y: pass a negative distance to go toward +Y.
+- Profiles: \`draw([x, y]).lineTo(...).close()\`, \`drawRoundedRectangle(w, h, r)\`, \`drawCircle(r)\`; then \`.sketchOnPlane("XY", offset)\` and \`.extrude(distance)\` or \`.revolve()\`. A sketch on "XZ" extrudes toward -Y: pass a negative distance to go toward +Y. In a profile, a method ending in \`To\` takes a point and the one without takes numbers, distances from the pen: \`.threePointsArcTo([endX, endY], [viaX, viaY])\` but \`.threePointsArc(dx, dy, viaDx, viaDy)\`.
 - Solids: \`makeBaseBox(x, y, z)\` (centred in X and Y, from Z = 0), \`makeCylinder(radius, height, [x, y, z], [dx, dy, dz])\`, \`makeSphere(radius)\`.
 - Combining: \`a.fuse(b)\`, \`a.cut(b)\`, \`a.intersect(b)\`; \`.translate([x, y, z])\`, \`.rotate(degrees, [x, y, z], [dx, dy, dz])\`. Every operation returns a new solid.
 - \`solid.shell(thickness, (f) => f.inPlane("XY", height))\` hollows the solid and opens the selected face.
@@ -39,7 +39,7 @@ function main() {
 
 ## Checking the result
 
-Every call returns a report: the size, the volume, the faces and edges by kind, and for each fillet, chamfer and shell how many edges or faces it selected. Read it against what you meant: four countersunk holes are four cones, and a chamfer meant for 4 rims that selected 12 edges went somewhere else. A selector that picks too much is not an error. Then look at the drawing sheet (the \`.svg\`).`;
+Every call returns a report: the size, the volume, the faces and edges by kind, and for each fillet, chamfer and shell how many edges or faces it selected. Read it against what you meant: four countersunk holes are four cones, and a chamfer meant for 4 rims that selected 12 edges went somewhere else. A selector that picks too much is not an error. Warnings come first in the report (a cut that removed nothing, fused pieces that do not touch): correct each and build again, or tell the user about it. Then look at the drawing sheet (the \`.svg\`).`;
 
 export const TOOL_DEFINITION = {
   type: "function" as const,

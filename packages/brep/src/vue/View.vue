@@ -165,34 +165,19 @@
         </template>
 
         <h2 class="mt-4 font-semibold text-slate-900">{{ t.files }}</h2>
-        <ul
-          v-if="fileRows.length"
-          class="mt-1 space-y-1"
-          data-testid="brep-files"
-        >
-          <li
-            v-for="row in fileRows"
-            :key="row.path"
-            class="flex items-center gap-2"
-          >
-            <span class="w-20 shrink-0 whitespace-nowrap text-slate-500">{{
-              row.label
-            }}</span>
-            <code
-              class="min-w-0 flex-1 truncate font-mono text-xs"
-              :title="row.path"
-              >{{ row.path }}</code
-            >
+        <ul class="mt-1 flex flex-wrap gap-2" data-testid="brep-files">
+          <li v-for="row in fileRows" :key="row.kind">
             <button
               type="button"
-              class="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-xs hover:bg-slate-100"
-              @click="copy(row.path, row.path)"
+              class="rounded border border-slate-300 px-2.5 py-1 hover:bg-slate-100"
+              :title="row.fileName"
+              :data-testid="`brep-download-${row.kind}`"
+              @click="download(row)"
             >
-              {{ copiedKey === row.path ? t.copied : t.copy }}
+              {{ t.download }} {{ row.label }}
             </button>
           </li>
         </ul>
-        <p v-else class="mt-1 text-slate-500">{{ t.notSaved }}</p>
       </section>
 
       <details
@@ -228,6 +213,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { ToolResult } from "gui-chat-protocol";
 import { decodeMesh, isBrepMesh } from "../core/mesh";
+import { unpack } from "../core/packed";
 import type { PresentBrepData } from "../core/types";
 import type { OperationSummary } from "../kernel/report";
 import { useT, type Messages } from "../lang";
@@ -268,16 +254,75 @@ const mesh = computed(() => {
   return isBrepMesh(candidate) ? candidate : null;
 });
 
-const fileRows = computed(() => {
-  const files = props.selectedResult.data?.files;
-  if (!files) return [];
-  return [
-    { label: t.value.fileScript, path: files.script },
-    { label: t.value.fileStep, path: files.step },
-    { label: t.value.fileStl, path: files.stl },
-    { label: t.value.fileDrawings, path: files.views },
-  ];
+interface FileRow {
+  kind: "script" | "step" | "stl" | "views";
+  label: string;
+  fileName: string;
+  type: string;
+  /** The file's content: text as it is, or packed bytes to unpack. */
+  content: { text: string } | { packed: string };
+}
+
+/** What can be downloaded: the script always, the exports when the result
+ *  carries them (one from before the View had downloads does not). */
+const fileRows = computed<FileRow[]>(() => {
+  const downloads = props.selectedResult.data?.downloads;
+  const name = downloads?.name ?? "model";
+  const rows: FileRow[] = [];
+  if (script.value)
+    rows.push({
+      kind: "script",
+      label: t.value.fileScript,
+      fileName: `${name}.replicad.js`,
+      type: "text/javascript",
+      content: { text: script.value },
+    });
+  if (downloads)
+    rows.push(
+      {
+        kind: "step",
+        label: t.value.fileStep,
+        fileName: `${name}.step`,
+        type: "model/step",
+        content: { packed: downloads.step },
+      },
+      {
+        kind: "stl",
+        label: t.value.fileStl,
+        fileName: `${name}.stl`,
+        type: "model/stl",
+        content: { packed: downloads.stl },
+      },
+      {
+        kind: "views",
+        label: t.value.fileDrawings,
+        fileName: `${name}.svg`,
+        type: "image/svg+xml",
+        content: { packed: downloads.views },
+      },
+    );
+  return rows;
 });
+
+/** Hand the file to the browser to save: a link with `download`, clicked. */
+async function download(row: FileRow): Promise<void> {
+  let part: BlobPart;
+  try {
+    part =
+      "text" in row.content
+        ? row.content.text
+        : await unpack(row.content.packed);
+  } catch {
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([part], { type: row.type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = row.fileName;
+  link.click();
+  // After the click has been handled: revoking at once can cancel the save.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 const number = (value: number): string =>
   Number.isFinite(value) ? value.toLocaleString("en-US") : "–";

@@ -8,6 +8,7 @@ import {
   scriptRelPathOf,
   workspacePathsFor,
 } from "./paths";
+import { pack } from "./packed";
 import type {
   BrepDiagnostic,
   BrepFiles,
@@ -23,7 +24,13 @@ export interface BrepExecuteContext extends ToolContext {
 }
 
 const BUILT_ACK =
-  "Read the report against what you meant to build before telling the user it is done: the size, the face counts, and how many edges each fillet and chamfer selected. A selector that picked too many edges is not an error and shows only there. Check which side the user sees first (the message says): if the part has its back to them, turn it and build again. Then look at the drawing sheet if you can open it. Tell the user where the STEP and STL files are.";
+  "Read the report against what you meant to build before telling the user it is done: the size, the face counts, and how many edges each fillet and chamfer selected. A selector that picked too many edges is not an error and shows only there. Check which side the user sees first (the message says): if the part has its back to them, turn it and build again. Then look at the drawing sheet if you can open it. Tell the user they can download the script, STEP, STL and drawings from the view; the message has the saved paths.";
+
+/** Leads the instructions of a build that has warnings. The warnings were in
+ *  the message and in `jsonData` all along; the instructions said nothing of
+ *  them, and a model went on to call a train with three of them done. */
+const warnedAck = (count: number): string =>
+  `The build has ${count} warning${count === 1 ? "" : "s"}, at the top of the message. Do not tell the user it is done before each one is dealt with: correct the script and build again, or, where the warning describes what you meant, tell the user what it says and why it is intended. `;
 
 /** Said in every result, not only in the guide: the guide's sentence about
  *  which way is front did not stop a second chair in MulmoChat from being
@@ -133,8 +140,10 @@ export const presentBrep = async (
 
     const artifacts = host.files?.artifacts;
     let files: BrepFiles | undefined;
+    // The name the downloads carry: the saved files' own, where there are any.
+    let relPath = source.relPath ?? newScriptRelPath(args.title);
     if (artifacts) {
-      const relPath =
+      relPath =
         source.relPath ?? (await freshScriptRelPath(artifacts, args.title));
       const rel = relPathsFor(relPath);
       // The script first: if an export fails to write, the source is kept.
@@ -153,13 +162,26 @@ export const presentBrep = async (
       report: built.report,
       mesh: built.mesh,
       ...(files ? { files } : {}),
+      // The View's download buttons: it has no way to read the saved files.
+      downloads: {
+        name: relPath.slice(
+          relPath.lastIndexOf("/") + 1,
+          -SCRIPT_EXTENSION.length,
+        ),
+        step: await pack(built.step),
+        stl: await pack(built.stl),
+        views: await pack(built.views),
+      },
     };
     return {
       message: `Built "${args.title}": ${formatReport(built.report)}${VIEW_NOTE}${saved}`,
       title: args.title,
       data,
       jsonData: { report: built.report, ...(files ? { files } : {}) },
-      instructions: BUILT_ACK,
+      instructions:
+        (built.report.warnings.length
+          ? warnedAck(built.report.warnings.length)
+          : "") + BUILT_ACK,
     };
   } catch (cause) {
     const error = diagnosticOf(cause);

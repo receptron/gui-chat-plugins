@@ -26,7 +26,7 @@ const ja: Messages = {
   fileStep: "STEP",
   fileStl: "STL",
   fileDrawings: "図面",
-  notSaved: "未保存: このホストにはファイル保存機能がありません。",
+  download: "ダウンロード",
   script: "スクリプト",
   copy: "コピー",
   copied: "コピーしました",

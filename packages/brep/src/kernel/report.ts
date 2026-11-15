@@ -156,7 +156,7 @@ export function buildReport(
     const solids = countSolids(kernel, part.shape);
     if (solids > 1)
       warnings.push(
-        `${subject} is ${solids} separate solids: pieces that were fused do not touch.`,
+        `${subject} is ${solids} separate solids: pieces that were fused do not touch. If it is one piece, make them overlap and build again; if they are separate on purpose, tell the user it is ${solids} loose pieces.`,
       );
     if (solids === 0)
       warnings.push(`${subject} is not a solid: it has no enclosed volume.`);
@@ -230,9 +230,18 @@ export const formatOperations = (records: OperationRecord[]): string[] =>
 export function formatReport(report: ModelReport): string {
   const lines = [
     `${report.size.join(" x ")} mm, volume ${report.volume} mm3, surface ${report.area} mm2, ${report.solids} solid${report.solids === 1 ? "" : "s"}.`,
+  ];
+  // First, as in the View: after two dozen lines of operations a model in
+  // MulmoChat read past three warnings and told the user the train was done.
+  if (report.warnings.length)
+    lines.push(
+      `Warnings (${report.warnings.length}):`,
+      ...report.warnings.map((w) => `  ${w}`),
+    );
+  lines.push(
     `Faces: ${formatKinds(report.faces)}.`,
     `Edges: ${formatKinds(report.edges)}.`,
-  ];
+  );
   if (report.parts)
     lines.push(
       "Parts: " +
@@ -246,7 +255,5 @@ export function formatReport(report: ModelReport): string {
     );
   if (report.operations.length)
     lines.push("Operations:", ...report.operations.map(formatOperation));
-  if (report.warnings.length)
-    lines.push("Warnings:", ...report.warnings.map((w) => `  ${w}`));
   return lines.join("\n");
 }

@@ -85,6 +85,66 @@ describe("operations that do not fit", () => {
   });
 });
 
+describe("a profile that is drawn wrong", () => {
+  // From a train built in MulmoChat. These two came back as
+  // "Standard_OutOfRange" with no line and as "[object
+  // WebAssembly.Exception]"; the model took its script apart looking for
+  // them and stopped at the piece that built.
+  const profile = (arc: string) =>
+    [
+      "const { draw } = replicad;",
+      "function main() {",
+      "  return draw([-10, 0]).lineTo([10, 0]).lineTo([10, 20])",
+      `    ${arc}`,
+      '    .close().sketchOnPlane("XZ")',
+      "    .extrude(50);",
+      "}",
+    ].join("\n");
+
+  it("says an arc given points where it takes distances, with its line", async () => {
+    const error = await failure(profile(".threePointsArc([-10, 20], [0, 26])"));
+    assert.equal(error.code, "SCRIPT_ERROR");
+    assert.equal(error.line, 4);
+    assert.match(
+      error.message,
+      /^threePointsArc\(\[-10, 20\], \[0, 26\]\) at line 4: .*use threePointsArcTo/,
+    );
+  });
+
+  it("builds the same arc given as points", async () => {
+    const { report } = await buildModel(
+      profile(".threePointsArcTo([-10, 20], [0, 26])"),
+    );
+    assert.deepEqual(report.size, [20, 50, 26]);
+    assert.deepEqual(report.warnings, []);
+  });
+
+  it("stops at an extrusion of a profile that crosses itself", async () => {
+    // The train's plan, a tenth the size: rounded corners written with
+    // points, given as numbers. Each arc runs off and comes back across.
+    const error = await failure(
+      [
+        "const { draw } = replicad;",
+        "function main() {",
+        "  return draw([-140, 1000]).lineTo([140, 1000]).lineTo([140, -920])",
+        "    .threePointsArc(60, -1000, 116.6, -976.6)",
+        "    .lineTo([-60, -1000])",
+        "    .threePointsArc(-140, -920, -116.6, -976.6)",
+        '    .close().sketchOnPlane("XY")',
+        "    .extrude(400);",
+        "}",
+      ].join("\n"),
+    );
+    assert.equal(error.code, "INVALID_RESULT");
+    assert.equal(error.line, 8);
+    assert.match(
+      error.message,
+      /^extrude\(400\) at line 8 returned a shape that is not a valid solid/,
+    );
+    assert.match(error.message, /crosses itself/);
+  });
+});
+
 describe("results that are built but wrong", () => {
   it("warns that fused pieces do not touch", async () => {
     const { report } = await buildModel(

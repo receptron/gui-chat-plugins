@@ -2,7 +2,7 @@
 // and produce the files. This module and everything under it is loaded on the
 // first build, not when the tool is listed.
 
-import { BrepError } from "./errors";
+import { BrepError, describeThrown } from "./errors";
 import { loadKernel } from "./load";
 import type { BrepMesh } from "../core/mesh";
 import { toDisplayMesh, toStep, toStl, toViewsSvg } from "./output";
@@ -55,17 +55,28 @@ async function build(
       script,
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     );
-    const whole = wholeOf(kernel, parts);
-    const report = buildReport(kernel, parts, whole, recorder);
-    // Before the STL, which meshes finer: see `toDisplayMesh`.
-    const mesh = toDisplayMesh(whole);
-    return {
-      report,
-      mesh,
-      step: await toStep(kernel, parts),
-      stl: await toStl(whole),
-      views: toViewsSvg(kernel, whole),
-    };
+    try {
+      const whole = wholeOf(kernel, parts);
+      const report = buildReport(kernel, parts, whole, recorder);
+      // Before the STL, which meshes finer: see `toDisplayMesh`.
+      const mesh = toDisplayMesh(whole);
+      return {
+        report,
+        mesh,
+        step: await toStep(kernel, parts),
+        stl: await toStl(whole),
+        views: toViewsSvg(kernel, whole),
+      };
+    } catch (cause) {
+      if (cause instanceof BrepError) throw cause;
+      // The script ran; what it returned cannot be measured, meshed or
+      // exported. Without this the model is told "[object
+      // WebAssembly.Exception]".
+      throw new BrepError(
+        "INVALID_RESULT",
+        `The script ran, but what main() returned could not be measured or exported: ${describeThrown(kernel.oc, cause)}. That is a shape which is not a valid solid: look at the last operations, and at any profile that may cross itself.`,
+      );
+    }
   } catch (cause) {
     if (cause instanceof BrepError)
       cause.completed = formatOperations(recorder.operations);

@@ -311,6 +311,117 @@ function wrap(kernel: Kernel, op: OperationName, original: Method): Method {
   };
 }
 
+/** A call as the script wrote it, short: `threePointsArc([-1400, 3000], [0, 3620])`. */
+function formatCall(name: string, args: unknown[]): string {
+  const one = (value: unknown): string => {
+    if (typeof value === "number") return `${round(value, 3)}`;
+    if (typeof value === "string") return JSON.stringify(value);
+    if (typeof value === "function") return "fn";
+    if (Array.isArray(value)) return `[${value.map(one).join(", ")}]`;
+    if (isRecord(value)) return "{...}";
+    return String(value);
+  };
+  const text = args.map(one).join(", ");
+  return `${name}(${text.length > 80 ? `${text.slice(0, 77)}...` : text})`;
+}
+
+/** Sketch methods whose result is a solid: checked as the six operations'
+ *  results are. A profile that crosses itself extrudes without complaint. */
+const SOLID_MAKERS = new Set(["extrude", "revolve", "loftWith", "sweepSketch"]);
+
+/** Everything else a script calls on a pen, a drawing, a sketch or a shape.
+ *
+ * Not recorded: there is nothing to say about a `lineTo` that worked. It is
+ * here for the ones that fail. In MulmoChat `threePointsArc([x, y], [x, y])`
+ * came back as "Standard_OutOfRange" with no line, and an extrusion of a
+ * profile that crossed itself as "[object WebAssembly.Exception]" from the
+ * export, two steps later. The model took its script apart to find them and
+ * stopped at the piece that built.
+ */
+function guard(
+  kernel: Kernel,
+  name: string,
+  original: Method,
+  /** The method that takes points where this one takes distances from the
+   *  pen: `threePointsArcTo` for `threePointsArc`. */
+  absolute?: string,
+): Method {
+  return function guarded(this: Shape3D, ...args: unknown[]): unknown {
+    if (!active || depth > 0) return original.apply(this, args);
+    if (absolute && Array.isArray(args[0])) {
+      const line = currentScriptLine();
+      throw new BrepError(
+        "SCRIPT_ERROR",
+        `${formatCall(name, args)}${line === undefined ? "" : ` at line ${line}`}: ${name} takes numbers, distances from where the pen is. For points, as here, use ${absolute}.`,
+        line,
+      );
+    }
+    let result: unknown;
+    depth += 1;
+    try {
+      result = original.apply(this, args);
+    } catch (cause) {
+      // An Error has its own message and line; the kernel's has neither.
+      if (cause instanceof Error) throw cause;
+      const line = currentScriptLine();
+      throw new BrepError(
+        "OPERATION_FAILED",
+        `${formatCall(name, args)}${line === undefined ? "" : ` at line ${line}`} failed: ${describeThrown(kernel.oc, cause)}.`,
+        line,
+      );
+    } finally {
+      depth -= 1;
+    }
+    if (
+      SOLID_MAKERS.has(name) &&
+      isRecord(result) &&
+      "wrapped" in result &&
+      !isValidShape(kernel, result as unknown as AnyShape)
+    ) {
+      const line = currentScriptLine();
+      throw new BrepError(
+        "INVALID_RESULT",
+        `${formatCall(name, args)}${line === undefined ? "" : ` at line ${line}`} returned a shape that is not a valid solid, ${formatSize(sizeOf(result as unknown as AnyShape))}. Its profile probably crosses itself: check each point, and that an arc given numbers (threePointsArc) was meant as distances from the pen, not as points (threePointsArcTo).`,
+        line,
+      );
+    }
+    return result;
+  };
+}
+
+/** The classes whose methods are guarded, by their names in replicad. */
+const GUARDED = [
+  "BaseSketcher2d",
+  "DrawingPen",
+  "Sketcher",
+  "Drawing",
+  "Blueprint",
+  "Blueprints",
+  "CompoundBlueprint",
+  "Sketch",
+  "Sketches",
+  "CompoundSketch",
+  "Shape",
+  "_3DShape",
+];
+
+function guardClass(kernel: Kernel, prototype: Record<string, unknown>): void {
+  for (const name of Object.getOwnPropertyNames(prototype)) {
+    if (name === "constructor" || name.startsWith("_")) continue;
+    if ((OPERATIONS as string[]).includes(name)) continue;
+    // A getter (`boundingBox`, `edges`) is not a call: leave it.
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+    if (typeof descriptor?.value !== "function") continue;
+    const twin = `${name}To`;
+    prototype[name] = guard(
+      kernel,
+      name,
+      descriptor.value as Method,
+      typeof prototype[twin] === "function" ? twin : undefined,
+    );
+  }
+}
+
 const OPERATIONS: OperationName[] = [
   "fillet",
   "chamfer",
@@ -335,5 +446,13 @@ export function instrument(kernel: Kernel): void {
     const original = prototype[op];
     if (typeof original === "function")
       prototype[op] = wrap(kernel, op, original as Method);
+  }
+  const classes = kernel.replicad as unknown as Record<
+    string,
+    { prototype?: Record<string, unknown> } | undefined
+  >;
+  for (const name of GUARDED) {
+    const guarded = classes[name]?.prototype;
+    if (guarded) guardClass(kernel, guarded);
   }
 }

@@ -86,14 +86,18 @@ Beside the script, under the same name:
 | `.stl`  | binary, in millimetres, within 0.05 mm of the true surface                             |
 | `.svg`  | a sheet of four line drawings (top, front, right, and from above), hidden edges dashed |
 
-`result.data` is `{ script, report, mesh, files? }`, for the View; `result.jsonData` is
-`{ report, files? }`, for the model.
+`result.data` is `{ script, report, mesh, files?, downloads }`, for the View; `result.jsonData` is
+`{ report, files? }`, for the model. `downloads` is the three exports themselves, gzipped and
+base64 (`src/core/packed.ts`), under the saved files' name: about 95 kB for the hub in the tests,
+about 220 kB for a chair. It is there on a host that saves nothing, too.
 
 ## The View
 
 The model in 3D, turned with the mouse, with its true edges drawn as lines; four standard views
 (from above front-right, top, front, right, the same four as the drawing sheet, Z up); the report,
-with any warnings first; the saved files' paths; and the script, read-only.
+with any warnings first; a button to download each file (script, STEP, STL, drawings); and the
+script, read-only. The downloads are the saved files byte for byte: they travel in the result,
+because a host owes a View no way to read a file.
 
 The View cannot run the kernel, so the mesh it draws is made where the model is built and travels
 in `result.data.mesh`: triangles and edge segments, positions as 16-bit steps across the bounding
@@ -142,9 +146,22 @@ The checks exist because of what a trial of three parts showed (the parts are in
 selected 4 of 12 edges; the shortest selected edge is 5 mm; the solid is 40 x 20 x 5 mm.`
 - **A boolean can do nothing.** A `cut` whose tool misses the solid, and pieces that are fused but
   do not touch, are warnings in the report.
+- **A warning has to be where the model reads.** A train came back with three warnings below two
+  dozen lines of operations, and the model called it done. Warnings are now the second thing in
+  the message, each says what to do about it, and the result's instructions begin with them:
+  correct each and build again, or tell the user about it.
 
-The operations checked are `fillet`, `chamfer`, `shell`, `fuse`, `cut` and `intersect`. They are
-wrapped on replicad's 3D shape class when the kernel loads, so a script needs nothing extra; the
+- **A profile drawn wrong fails somewhere else.** `threePointsArc([x, y], [x, y])` (it takes
+  distances from the pen; `threePointsArcTo` takes points) was "Standard_OutOfRange" with no
+  line, and a profile that crossed itself extruded in silence and failed two steps later, in the
+  export, as "[object WebAssembly.Exception]". The model took its script apart to find them. Now
+  the first is refused where it is written, with the method to use, and an extrusion or
+  revolution that is not a valid solid stops the build at its line.
+
+The operations checked and recorded are `fillet`, `chamfer`, `shell`, `fuse`, `cut` and
+`intersect`. The other methods of a pen, a drawing, a sketch and a shape are guarded: nothing is
+recorded, and a kernel failure in one is reported with the call and its line. All of them are
+wrapped on replicad's classes when the kernel loads, so a script needs nothing extra; the
 wrappers call straight through outside a build. A host that uses replicad itself, from the same
 copy, gets the wrapped methods.
 
@@ -156,8 +173,6 @@ An error result has no `data`, and `jsonData.error` is `{ code, message, line?, 
 
 - **Editing in the View.** It would send the script back to the host to rebuild, over
   `dispatch`, which each host has to route.
-- **Downloads from the View.** It shows where the STEP and STL files are; fetching them needs the
-  host too.
 - **A picture the model can look at.** The drawing sheet is SVG; a model that reads images needs
   it rasterised.
 - **Isolation.** Each build could run in a worker, which would free the kernel's memory after it

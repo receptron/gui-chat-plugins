@@ -26,7 +26,7 @@ const en: Messages = {
   fileStep: "STEP",
   fileStl: "STL",
   fileDrawings: "Drawings",
-  notSaved: "Not saved: this host has no file storage.",
+  download: "Download",
   script: "Script",
   copy: "Copy",
   copied: "Copied",

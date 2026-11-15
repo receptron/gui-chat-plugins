@@ -12,6 +12,7 @@ import {
   pluginCore,
   scriptRelPathOf,
 } from "../src/index";
+import { unpack } from "../src/core/packed";
 import { fakeHost } from "./fakeHost";
 import { hub, plate } from "./parts";
 
@@ -77,6 +78,71 @@ describe("presentBrep", () => {
     // use to the model.
     assert.equal(isBrepMesh(result.data.mesh), true);
     assert.equal(result.message.includes(result.data.mesh.positions), false);
+  });
+
+  it("carries the exports for the View to download, byte for byte", async () => {
+    const { artifacts, context } = fakeHost();
+    const result = await executePresentBrep(context, {
+      title: "Flanged Hub",
+      script: hub,
+    });
+    assert.ok(result.data, result.message);
+    const { downloads, files } = result.data;
+    assert.ok(downloads && files);
+    const rel = (path: string) => path.slice("artifacts/".length);
+    // Named as the saved files are, so a download and the file match.
+    assert.equal(`artifacts/brep/${downloads.name}.replicad.js`, files.script);
+    // Not `deepEqual`: on a mismatch it would print the difference of two
+    // files, which for a few hundred kB does not finish.
+    for (const kind of ["step", "stl", "views"] as const) {
+      const unpacked: Buffer = Buffer.from(await unpack(downloads[kind]));
+      const saved = await artifacts.readBytes(rel(files[kind]));
+      assert.ok(unpacked.equals(saved), `${kind} is not the saved file`);
+    }
+    // For the View only: the model is not sent three files of base64.
+    assert.ok(!("downloads" in (result.jsonData ?? {})));
+  });
+
+  it("puts a warning first, in the message and in the instructions", async () => {
+    // A train built in MulmoChat came back with three warnings, after two
+    // dozen lines of operations and with instructions that did not mention
+    // them. The model told the user it was done.
+    const { context } = fakeHost();
+    const result = await executePresentBrep(context, {
+      title: "Plate",
+      script: plate("plate.fuse(makeCylinder(3, 10, [100, 0, 0]))"),
+    });
+    assert.ok(result.data, result.message);
+    const { message } = result;
+    const warnings = message.indexOf("Warnings (1):");
+    assert.ok(warnings > 0, message);
+    assert.ok(warnings < message.indexOf("Faces:"));
+    assert.ok(warnings < message.indexOf("Operations:"));
+    assert.match(message, /2 separate solids.*make them overlap/);
+    assert.match(result.instructions ?? "", /^The build has 1 warning,/);
+    // The rest of the instructions still follow.
+    assert.match(result.instructions ?? "", /back to them/);
+
+    // A build with nothing to warn about is not told to look for one.
+    const clean = await executePresentBrep(context, {
+      title: "Flanged Hub",
+      script: hub,
+    });
+    assert.doesNotMatch(clean.message, /Warnings/);
+    assert.match(clean.instructions ?? "", /^Read the report/);
+  });
+
+  it("offers the downloads on a host that saves nothing", async () => {
+    const result = await executePresentBrep({} as never, {
+      title: "Flanged Hub",
+      script: hub,
+    });
+    assert.ok(result.data, result.message);
+    const { downloads } = result.data;
+    assert.ok(downloads);
+    assert.match(downloads.name, /^flanged-hub-\d+-[0-9a-f]{8}$/);
+    const step = new TextDecoder().decode(await unpack(downloads.step));
+    assert.match(step, /MANIFOLD_SOLID_BREP/);
   });
 
   it("rebuilds a saved script from its path after an edit", async () => {
