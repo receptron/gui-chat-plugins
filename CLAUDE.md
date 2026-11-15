@@ -7,6 +7,12 @@ plugin under `@gui-chat-plugin/`, in `packages/<name>/`. MIT. The hosts that use
 MulmoTerminal, and it takes three extras the protocol doesn't define (`files.byPath`, `gallery`,
 `renderThumbnail`), each optional and listed in its README.
 
+`packages/brep` is the other exception: its `execute()` needs Node (the OpenCascade kernel, and
+`node:vm` to run the model's script, unsandboxed), so it cannot run in a page and is for hosts
+whose model can already run code on the machine. Its Vue entry imports nothing that reaches the
+kernel (`test/test_page_entry.ts`), and its `execute` there refuses: the host runs the tool on its
+server.
+
 `packages/common` is the one package that is not a plugin: no tools and no Views, only pure,
 browser-safe helpers the plugins share. It depends only on `gui-chat-protocol` (a peer), and a
 plugin lists it under `dependencies`.

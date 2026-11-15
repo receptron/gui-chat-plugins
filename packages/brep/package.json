@@ -1,0 +1,74 @@
+{
+  "name": "@gui-chat-plugin/brep",
+  "version": "0.1.0",
+  "description": "presentBrep \u2014 solid models for manufacturing, written as replicad scripts and built by the OpenCascade kernel in Node: fillets, chamfers, exact dimensions, STEP and STL export, with a check report on every build. Core (tool definition + execute, Node only) on `.`, Vue View/Preview on `./vue`.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.cjs",
+      "default": "./dist/vue.js"
+    },
+    "./style.css": "./dist/style.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build && vue-tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "tsx --test test/test_*.ts"
+  },
+  "dependencies": {
+    "@gui-chat-plugin/common": "^0.1.0",
+    "@types/three": "^0.186.0",
+    "replicad": "^1.2.1",
+    "replicad-opencascadejs": "^1.2.1",
+    "three": "^0.186.0"
+  },
+  "peerDependencies": {
+    "gui-chat-protocol": "^2.3.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "gui-chat-protocol": "^2.3.0",
+    "vue": "^3.5.43",
+    "vue-tsc": "^3.3.11"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/brep#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/receptron/gui-chat-plugins.git",
+    "directory": "packages/brep"
+  },
+  "bugs": {
+    "url": "https://github.com/receptron/gui-chat-plugins/issues"
+  },
+  "keywords": [
+    "gui-chat",
+    "gui-chat-protocol",
+    "plugin",
+    "cad",
+    "b-rep",
+    "replicad",
+    "opencascade",
+    "step",
+    "three"
+  ]
+}
