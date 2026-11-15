@@ -532,7 +532,11 @@ function resize(): void {
   renderer.setSize(width, height);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  draw();
+  // A standard view the user has not turned away from is fitted to the box
+  // again: the first fit is made before the box has its size, with an aspect
+  // of 1, and a pane made narrower would cut the model off at the sides.
+  if (activeView.value) lookFrom(activeView.value);
+  else draw();
 }
 
 function lookFrom(view: ViewName): void {

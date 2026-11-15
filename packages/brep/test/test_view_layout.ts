@@ -92,4 +92,15 @@ describe("the View's layout", () => {
     assert.match(rule(".brep-bar"), /touch-action: none/);
     assert.match(rule(".brep-bar"), /flex: none/);
   });
+
+  it("fits a standard view again when its box changes size", () => {
+    // The first fit is made before the box has a size, with an aspect of 1:
+    // in a narrow pane the model was cut off until a view button was pressed.
+    const resize = /function resize\(\): void \{([\s\S]*?)\n\}/.exec(view)?.[1];
+    assert.ok(resize, "View.vue has no resize()");
+    assert.match(
+      resize,
+      /if \(activeView\.value\) lookFrom\(activeView\.value\)/,
+    );
+  });
 });

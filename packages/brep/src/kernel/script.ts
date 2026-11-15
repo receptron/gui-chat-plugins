@@ -68,6 +68,23 @@ function withTimeLimit<T>(run: () => T, timeoutMs: number): T {
   }
 }
 
+/** What `value` resolves to, or a timeout after `remainingMs`. */
+async function settled(value: unknown, remainingMs: number): Promise<unknown> {
+  if (!(value instanceof Promise)) return value;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject({ code: "ERR_SCRIPT_EXECUTION_TIMEOUT" }),
+      Math.max(remainingMs, 0),
+    );
+  });
+  try {
+    return await Promise.race([value, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -100,7 +117,8 @@ export async function runScript(
   const define = compile(script);
   let returned: unknown;
   try {
-    returned = await withTimeLimit(() => {
+    const started = Date.now();
+    const result = withTimeLimit(() => {
       const main = define(kernel.replicad);
       if (!main)
         throw new BrepError(
@@ -109,6 +127,10 @@ export async function runScript(
         );
       return main();
     }, timeoutMs);
+    // An `async main` has returned by now, with a promise V8's limit no
+    // longer covers. One that never settles would hold the build queue, and
+    // every build after it, for good.
+    returned = await settled(result, timeoutMs - (Date.now() - started));
   } catch (cause) {
     if (cause instanceof BrepError) throw cause;
     if (isRecord(cause) && cause.code === "ERR_SCRIPT_EXECUTION_TIMEOUT")

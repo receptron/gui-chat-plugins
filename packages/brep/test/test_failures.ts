@@ -208,6 +208,25 @@ describe("scripts that do not run", () => {
     assert.ok(Date.now() - started < 5000);
   });
 
+  it("stops an async main that never settles, and builds the next one", async () => {
+    // V8's limit ends when main() returns its promise. Unlimited, this one
+    // held the build queue: no later build ever ran.
+    const error = await failure(
+      "async function main() { return new Promise(() => {}); }",
+      50,
+    );
+    assert.equal(error.code, "TIMEOUT");
+    const { report } = await buildModel(plate("plate"));
+    assert.equal(report.volume, 4000);
+  });
+
+  it("builds what an async main resolves to", async () => {
+    const { report } = await buildModel(
+      "const { makeBaseBox } = replicad;\nasync function main() { return makeBaseBox(40, 20, 5); }",
+    );
+    assert.equal(report.volume, 4000);
+  });
+
   it("builds again after a failure", async () => {
     await failure(plate("plate.fillet(3)"));
     const { report } = await buildModel(plate("plate.fillet(1)"));
