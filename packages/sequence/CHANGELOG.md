@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+- Dependencies: `katex` 0.19, `marked` 18.1. No change in behaviour.
+
 ## 0.7.1
 
 - **A web page's address shows the page's preview picture.** In MulmoChat, the model had only

@@ -1,5 +1,10 @@
 # Changelog
 
+## 8.2.3
+
+- Dependencies: `three` and `@types/three` 0.187 (was 0.186), `three-mesh-bvh` 0.9.18. A host on
+  `three` 0.187 no longer gets a second copy of it. No change in behaviour.
+
 ## 8.2.2
 
 - Internal cleanup, no change in behaviour (the same as MulmoClaude #3360 made to its copy before it switched to

@@ -36,10 +36,10 @@
   },
   "dependencies": {
     "@gui-chat-plugin/common": "^0.1.0",
-    "@types/three": "^0.186.0",
+    "@types/three": "^0.187.0",
     "replicad": "^1.2.1",
     "replicad-opencascadejs": "^1.2.1",
-    "three": "^0.186.0"
+    "three": "^0.187.0"
   },
   "peerDependencies": {
     "gui-chat-protocol": "^2.3.0",
@@ -47,8 +47,8 @@
   },
   "devDependencies": {
     "gui-chat-protocol": "^2.3.0",
-    "vue": "^3.5.43",
-    "vue-tsc": "^3.3.11"
+    "vue": "^3.5.45",
+    "vue-tsc": "^3.3.14"
   },
   "license": "MIT",
   "homepage": "https://github.com/receptron/gui-chat-plugins/tree/main/packages/brep#readme",
