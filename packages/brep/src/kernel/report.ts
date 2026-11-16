@@ -119,8 +119,18 @@ function summarise(records: OperationRecord[]): OperationSummary[] {
   return summaries;
 }
 
-const countSolids = (kernel: Kernel, shape: AnyShape): number =>
-  [...kernel.replicad.iterTopo(shape.wrapped, "solid")].length;
+/** How many separate solids a shape is.
+ *
+ * `iterTopo` yields the kernel's own handles, which nothing frees: unlike
+ * replicad's shapes they are not registered for finalization, and the kernel
+ * lives as long as the host. Deleted once the count is taken, and only then:
+ * the iterator compares each new solid with those it has already yielded.
+ */
+function countSolids(kernel: Kernel, shape: AnyShape): number {
+  const solids = [...kernel.replicad.iterTopo(shape.wrapped, "solid")];
+  for (const solid of solids) solid.delete();
+  return solids.length;
+}
 
 function areaOf(kernel: Kernel, shape: Shape3D): number {
   try {
