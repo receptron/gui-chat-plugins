@@ -24,6 +24,14 @@ fail() {
   exit 1
 }
 
+# Every npm call goes to npm's own registry, where the login is. yarn 1 runs
+# a script with npm_config_registry set to registry.yarnpkg.com, and npm then
+# looks there for a token: `npm whoami` said "not logged in" to a maintainer
+# who was, and `npm publish` would have gone the same way.
+npm() {
+  command npm --registry "https://registry.npmjs.org/" "$@"
+}
+
 package="${1:-}"
 [ -n "${package}" ] || fail "which package? yarn release <package> ($(ls packages | tr '\n' ' '))"
 dir="packages/${package}"
