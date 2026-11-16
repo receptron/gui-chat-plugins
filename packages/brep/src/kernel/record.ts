@@ -125,10 +125,10 @@ function edgeSelection(
   let edges: Edge[] = all;
   let size: unknown = config;
   if (typeof config === "function") {
-    const radiusOf = config as (edge: Edge) => unknown;
-    // As replicad reads it: no radius, or a radius of 0, leaves the edge.
-    edges = all.filter((edge) => Boolean(radiusOf(edge)));
-    size = undefined;
+    // Counted while the operation calls it (`counting`), not by calling it
+    // here first: a function that keeps state would answer differently the
+    // second time, and the operation would round other edges.
+    return { available: all.length };
   } else if (isRecord(config) && "filter" in config) {
     edges = (config.filter as Finds<Edge>).find(shape);
     size = config.radius;
@@ -167,6 +167,26 @@ function faceSelection(
     ...(typeof size === "number" ? { size } : {}),
     selected: faces.length,
     available: all.length,
+  };
+}
+
+/** A fillet's or chamfer's radius function, with the edges it gives a radius
+ *  noted in `selection` as the operation asks: no radius, or a radius of 0,
+ *  leaves the edge, as replicad reads it. */
+function counting(
+  kernel: Kernel,
+  radiusOf: (edge: Edge) => unknown,
+  selection: Selection,
+): (edge: Edge) => unknown {
+  selection.selected = 0;
+  return (edge) => {
+    const radius = radiusOf(edge);
+    if (radius) {
+      selection.selected = (selection.selected ?? 0) + 1;
+      const length = round(kernel.replicad.measureLength(edge));
+      selection.shortest = Math.min(selection.shortest ?? length, length);
+    }
+    return radius;
   };
 }
 
@@ -260,11 +280,19 @@ function wrap(kernel: Kernel, op: OperationName, original: Method): Method {
     } catch {
       // Leave it to the operation, which runs the same selector.
     }
+    const radiusOf = args[0];
+    const callArgs =
+      (op === "fillet" || op === "chamfer") && typeof radiusOf === "function"
+        ? [
+            counting(kernel, radiusOf as (edge: Edge) => unknown, selection),
+            ...args.slice(1),
+          ]
+        : args;
     const volumeBefore = volumeOf(kernel, this);
     let result: unknown;
     depth += 1;
     try {
-      result = original.apply(this, args);
+      result = original.apply(this, callArgs);
     } catch (cause) {
       if (cause instanceof BrepError) throw cause;
       // Nothing selected is a selector to correct, not a size to reduce.

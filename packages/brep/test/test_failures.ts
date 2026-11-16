@@ -157,6 +157,22 @@ describe("what a radius function selects", () => {
   });
 });
 
+describe("a radius function that keeps state", () => {
+  it("is asked once for each edge, by the operation alone", async () => {
+    // Asked first for the record, it had answered for edge 0 before the
+    // fillet began: the fillet then found no edge, where plain replicad
+    // rounds one.
+    const { report } = await buildModel(
+      plate(
+        "(() => { let i = 0; return plate.fillet(() => (i++ === 0 ? 1 : 0)); })()",
+      ),
+    );
+    assert.equal(report.operations[0]?.selected, 1);
+    assert.equal(report.operations[0]?.available, 12);
+    assert.ok(report.volume < 4000);
+  });
+});
+
 describe("results that are built but wrong", () => {
   it("warns that fused pieces do not touch", async () => {
     const { report } = await buildModel(
