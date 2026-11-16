@@ -1,0 +1,36 @@
+import type { Messages } from "./messages";
+
+const ja: Messages = {
+  untitled: "ソリッドモデル",
+  viewIso: "3D",
+  viewTop: "上面",
+  viewFront: "正面",
+  viewRight: "右側面",
+  edges: "稜線",
+  noMesh: "この結果には表示できるモデルがありません。",
+  noWebgl: "このブラウザでは3D表示を利用できません。",
+  size: "寸法",
+  volume: "体積",
+  surface: "表面積",
+  solids: "ソリッド数",
+  faces: "面",
+  edgeKinds: "稜線",
+  parts: "部品",
+  operations: "操作",
+  line: "行",
+  selectedOf: "{available} 中 {selected} を選択",
+  selected: "{selected} を選択",
+  warnings: "警告",
+  files: "ファイル",
+  fileScript: "スクリプト",
+  fileStep: "STEP",
+  fileStl: "STL",
+  fileDrawings: "図面",
+  download: "ダウンロード",
+  script: "スクリプト",
+  copy: "コピー",
+  copied: "コピーしました",
+  resizeModel: "3Dビューの高さを変更",
+};
+
+export default ja;

@@ -1,0 +1,36 @@
+import type { Messages } from "./messages";
+
+const en: Messages = {
+  untitled: "Solid model",
+  viewIso: "3D",
+  viewTop: "Top",
+  viewFront: "Front",
+  viewRight: "Right",
+  edges: "Edges",
+  noMesh: "This result has no model to show.",
+  noWebgl: "The 3D view is not available in this browser.",
+  size: "Size",
+  volume: "Volume",
+  surface: "Surface",
+  solids: "Solids",
+  faces: "Faces",
+  edgeKinds: "Edges",
+  parts: "Parts",
+  operations: "Operations",
+  line: "line",
+  selectedOf: "selected {selected} of {available}",
+  selected: "selected {selected}",
+  warnings: "Warnings",
+  files: "Files",
+  fileScript: "Script",
+  fileStep: "STEP",
+  fileStl: "STL",
+  fileDrawings: "Drawings",
+  download: "Download",
+  script: "Script",
+  copy: "Copy",
+  copied: "Copied",
+  resizeModel: "Resize the 3D view",
+};
+
+export default en;
