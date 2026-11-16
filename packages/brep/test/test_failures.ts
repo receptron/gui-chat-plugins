@@ -173,6 +173,39 @@ describe("a radius function that keeps state", () => {
   });
 });
 
+describe("a selector that keeps state", () => {
+  // Run once for the record and again by the operation, it picked the Z
+  // edges for the report and the X edges for the fillet.
+  it("is run once for a fillet, and the record is what the fillet used", async () => {
+    const stateful = await buildModel(
+      plate(
+        '(() => { let calls = 0; return plate.fillet(1, (e) => e.inDirection(++calls === 1 ? "Z" : "X")); })()',
+      ),
+    );
+    const plain = await buildModel(
+      plate('plate.fillet(1, (e) => e.inDirection("Z"))'),
+    );
+    assert.equal(stateful.report.volume, plain.report.volume);
+    assert.deepEqual(stateful.report.operations, plain.report.operations);
+    assert.equal(plain.report.operations[0]?.selected, 4);
+  });
+
+  it("is run once for a shell", async () => {
+    const stateful = await buildModel(
+      plate(
+        '(() => { let calls = 0; return plate.shell(1, (f) => f.inPlane("XY", ++calls === 1 ? 5 : 99)); })()',
+      ),
+    );
+    const plain = await buildModel(
+      plate('plate.shell(1, (f) => f.inPlane("XY", 5))'),
+    );
+    // Asked a second time it finds no face, and the shell stays closed.
+    assert.equal(stateful.report.volume, plain.report.volume);
+    assert.deepEqual(stateful.report.operations, plain.report.operations);
+    assert.equal(plain.report.operations[0]?.selected, 1);
+  });
+});
+
 describe("results that are built but wrong", () => {
   it("warns that fused pieces do not touch", async () => {
     const { report } = await buildModel(

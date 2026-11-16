@@ -20,7 +20,7 @@
 // - **A boolean that did nothing.** A `cut` whose tool misses the solid
 //   returns the solid unchanged: a hole that is not there.
 
-import type { AnyShape, Edge, Face, Shape3D } from "replicad";
+import type { AnyShape, Edge, Shape3D } from "replicad";
 import { BrepError, currentScriptLine, describeThrown } from "./errors";
 import type { Kernel } from "./load";
 
@@ -104,104 +104,144 @@ interface Selection {
   shortest?: number;
 }
 
-type FinderFunction<F> = (finder: F, shape: AnyShape) => F;
-interface Finds<T> {
-  find(shape: AnyShape): T[];
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-/** The edges a `fillet` / `chamfer` call picks, read from its arguments the
- *  way replicad reads them: a radius with an optional filter, a
- *  `{ filter, radius }` object, or a function from edge to radius. */
-function edgeSelection(
-  kernel: Kernel,
-  shape: Shape3D,
-  args: unknown[],
-): Selection {
-  const [config, filter] = args;
-  const all = shape.edges;
-  let edges: Edge[] = all;
-  let size: unknown = config;
-  if (typeof config === "function") {
-    // Counted while the operation calls it (`counting`), not by calling it
-    // here first: a function that keeps state would answer differently the
-    // second time, and the operation would round other edges.
-    return { available: all.length };
-  } else if (isRecord(config) && "filter" in config) {
-    edges = (config.filter as Finds<Edge>).find(shape);
-    size = config.radius;
-  } else if (typeof filter === "function") {
-    const finder = new kernel.replicad.EdgeFinder();
-    edges = (filter as FinderFunction<Finds<Edge>>)(finder, shape).find(shape);
-  }
-  const lengths = edges.map((edge) => kernel.replicad.measureLength(edge));
-  return {
-    ...(typeof size === "number" ? { size } : {}),
-    selected: edges.length,
-    available: all.length,
-    ...(lengths.length ? { shortest: round(Math.min(...lengths)) } : {}),
-  };
+/** What an operation is called with, and the selection its record reports.
+ *
+ * The selection is noted WHILE the operation runs, by standing between it
+ * and the script's selector. The selector was once run here first, for the
+ * record; one that keeps state then answered differently when the operation
+ * asked, and the solid was built from other edges than plain replicad picks.
+ */
+interface Prepared {
+  args: unknown[];
+  selection: Selection;
 }
 
-/** The faces a `shell` call opens: `(thickness, finder)` or
- *  `({ filter, thickness })`. */
-function faceSelection(
-  kernel: Kernel,
-  shape: Shape3D,
-  args: unknown[],
-): Selection {
-  const [first, second] = args;
-  const all = shape.faces;
-  let faces: Face[] = [];
-  let size: unknown = first;
-  if (isRecord(first) && "filter" in first) {
-    faces = (first.filter as Finds<Face>).find(shape);
-    size = first.thickness;
-  } else if (typeof second === "function") {
-    const finder = new kernel.replicad.FaceFinder();
-    faces = (second as FinderFunction<Finds<Face>>)(finder, shape).find(shape);
-  }
-  return {
-    ...(typeof size === "number" ? { size } : {}),
-    selected: faces.length,
-    available: all.length,
-  };
+type Finder = Record<string, unknown>;
+
+/** Note an edge the operation keeps. */
+function noteEdge(kernel: Kernel, selection: Selection, edge: Edge): void {
+  selection.selected = (selection.selected ?? 0) + 1;
+  const length = round(kernel.replicad.measureLength(edge));
+  selection.shortest = Math.min(selection.shortest ?? length, length);
 }
 
-/** A fillet's or chamfer's radius function, with the edges it gives a radius
- *  noted in `selection` as the operation asks: no radius, or a radius of 0,
- *  leaves the edge, as replicad reads it. */
-function counting(
+/** An edge finder whose `shouldKeep`, which a fillet asks once for each
+ *  edge, notes the edges it keeps. */
+function watchEdgeFinder<T>(
   kernel: Kernel,
-  radiusOf: (edge: Edge) => unknown,
   selection: Selection,
-): (edge: Edge) => unknown {
+  finder: T,
+): T {
+  if (!isRecord(finder) || typeof finder.shouldKeep !== "function")
+    return finder;
+  const shouldKeep = finder.shouldKeep as (edge: Edge) => unknown;
   selection.selected = 0;
-  return (edge) => {
-    const radius = radiusOf(edge);
-    if (radius) {
-      selection.selected = (selection.selected ?? 0) + 1;
-      const length = round(kernel.replicad.measureLength(edge));
-      selection.shortest = Math.min(selection.shortest ?? length, length);
-    }
-    return radius;
+  (finder as Finder).shouldKeep = (edge: Edge) => {
+    const keep = shouldKeep.call(finder, edge);
+    if (keep) noteEdge(kernel, selection, edge);
+    return keep;
   };
+  return finder;
 }
 
-const noSelection = (): Selection => ({});
+/** A face finder whose `find`, which a shell calls once, notes how many
+ *  faces it found. */
+function watchFaceFinder<T>(selection: Selection, finder: T): T {
+  if (!isRecord(finder) || typeof finder.find !== "function") return finder;
+  const find = finder.find as (...args: unknown[]) => unknown;
+  (finder as Finder).find = (...args: unknown[]) => {
+    const found = find.apply(finder, args);
+    if (Array.isArray(found)) selection.selected = found.length;
+    return found;
+  };
+  return finder;
+}
 
-const SELECTORS: Record<
+type FinderFunction = (finder: unknown, shape: unknown) => unknown;
+
+/** A `fillet` / `chamfer` call, read the way replicad reads it: a radius
+ *  with an optional filter, a `{ filter, radius }` object, or a function
+ *  from edge to radius. */
+function prepareEdges(
+  kernel: Kernel,
+  shape: Shape3D,
+  args: unknown[],
+): Prepared {
+  const [config, filter, ...others] = args;
+  const all = shape.edges;
+  const selection: Selection = { available: all.length };
+  if (typeof config === "function") {
+    const radiusOf = config as (edge: Edge) => unknown;
+    selection.selected = 0;
+    const counted = (edge: Edge): unknown => {
+      const radius = radiusOf(edge);
+      // No radius, or a radius of 0, leaves the edge.
+      if (radius) noteEdge(kernel, selection, edge);
+      return radius;
+    };
+    return { args: [counted, filter, ...others], selection };
+  }
+  if (isRecord(config) && "filter" in config) {
+    if (typeof config.radius === "number") selection.size = config.radius;
+    watchEdgeFinder(kernel, selection, config.filter);
+    return { args, selection };
+  }
+  if (typeof config === "number") selection.size = config;
+  if (typeof filter === "function") {
+    const select = filter as FinderFunction;
+    const watched: FinderFunction = (finder, solid) =>
+      watchEdgeFinder(kernel, selection, select(finder, solid));
+    return { args: [config, watched, ...others], selection };
+  }
+  // No selector: every edge, and nothing of the script's to call.
+  const lengths = all.map((edge) => kernel.replicad.measureLength(edge));
+  selection.selected = all.length;
+  if (lengths.length) selection.shortest = round(Math.min(...lengths));
+  return { args, selection };
+}
+
+/** A `shell` call: `(thickness, finder)` or `({ filter, thickness })`. */
+function prepareFaces(
+  _kernel: Kernel,
+  shape: Shape3D,
+  args: unknown[],
+): Prepared {
+  const [first, second, ...others] = args;
+  const selection: Selection = { selected: 0, available: shape.faces.length };
+  if (isRecord(first) && "filter" in first) {
+    if (typeof first.thickness === "number") selection.size = first.thickness;
+    watchFaceFinder(selection, first.filter);
+    return { args, selection };
+  }
+  if (typeof first === "number") selection.size = first;
+  if (typeof second === "function") {
+    const select = second as FinderFunction;
+    const watched: FinderFunction = (finder, solid) =>
+      watchFaceFinder(selection, select(finder, solid));
+    return { args: [first, watched, ...others], selection };
+  }
+  return { args, selection };
+}
+
+const prepareNothing = (
+  _kernel: Kernel,
+  _shape: Shape3D,
+  args: unknown[],
+): Prepared => ({ args, selection: {} });
+
+const PREPARE: Record<
   OperationName,
-  (kernel: Kernel, shape: Shape3D, args: unknown[]) => Selection
+  (kernel: Kernel, shape: Shape3D, args: unknown[]) => Prepared
 > = {
-  fillet: edgeSelection,
-  chamfer: edgeSelection,
-  shell: faceSelection,
-  fuse: noSelection,
-  cut: noSelection,
-  intersect: noSelection,
+  fillet: prepareEdges,
+  chamfer: prepareEdges,
+  shell: prepareFaces,
+  fuse: prepareNothing,
+  cut: prepareNothing,
+  intersect: prepareNothing,
 };
 
 const PICKED: Partial<Record<OperationName, string>> = {
@@ -272,27 +312,18 @@ function wrap(kernel: Kernel, op: OperationName, original: Method): Method {
     const recorder = active;
     if (!recorder || depth > 0) return original.apply(this, args);
     const line = currentScriptLine();
-    // Read the selection BEFORE the operation: a throwing selector is the
-    // script's own error and is reported as one, by the call below.
-    let selection: Selection = {};
+    let prepared: Prepared = { args, selection: {} };
     try {
-      selection = SELECTORS[op](kernel, this, args);
+      prepared = PREPARE[op](kernel, this, args);
     } catch {
-      // Leave it to the operation, which runs the same selector.
+      // Nothing to report of the selection; the operation runs as written.
     }
-    const radiusOf = args[0];
-    const callArgs =
-      (op === "fillet" || op === "chamfer") && typeof radiusOf === "function"
-        ? [
-            counting(kernel, radiusOf as (edge: Edge) => unknown, selection),
-            ...args.slice(1),
-          ]
-        : args;
+    const { selection } = prepared;
     const volumeBefore = volumeOf(kernel, this);
     let result: unknown;
     depth += 1;
     try {
-      result = original.apply(this, callArgs);
+      result = original.apply(this, prepared.args);
     } catch (cause) {
       if (cause instanceof BrepError) throw cause;
       // Nothing selected is a selector to correct, not a size to reduce.
